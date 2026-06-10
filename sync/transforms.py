@@ -520,7 +520,12 @@ def header_entity_id(
 ) -> UUID | None:
     if txn_type == "Purchase":
         ref = payload.get("EntityRef")
-        kind = str(ref.get("Type", "")).lower() if isinstance(ref, Mapping) else ""
+        # v3 responses use lowercase 'type'; tolerate legacy/staged 'Type'
+        kind = (
+            str(ref.get("type") or ref.get("Type") or "").lower()
+            if isinstance(ref, Mapping)
+            else ""
+        )
         if kind in ("customer", "vendor", "employee"):
             qbo_id = _ref_value(ref)
             return resolver.entities.get((qbo_id or "", kind))

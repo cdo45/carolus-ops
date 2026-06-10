@@ -94,7 +94,7 @@ COMPANY: dict[str, list[dict[str, Any]]] = {
     "Purchase": [
         {"Id": "5001", "TxnDate": "2026-05-12", "TotalAmt": 89.99,
          "AccountRef": {"value": "1"}, "PaymentType": "Check",
-         "EntityRef": {"value": "300", "Type": "Vendor"},
+         "EntityRef": {"value": "300", "type": "Vendor"},
          "Line": [
              {"Amount": 89.99,
               "AccountBasedExpenseLineDetail": {"AccountRef": {"value": "41"}}},

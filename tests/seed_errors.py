@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import psycopg  # noqa: E402
 from dotenv import load_dotenv  # noqa: E402
 
-from sync.qbo_client import QboClient  # noqa: E402
+from sync.qbo_client import QboClient, QboRequestError  # noqa: E402
 
 MANIFEST_PATH = Path(__file__).resolve().parent.parent / "data" / "seed_manifest.json"
 TAG = "CAROLUS-SEED"
@@ -68,17 +68,58 @@ def _q(name: str) -> str:
     return name.replace("'", r"\'")
 
 
+class SeedFailure(Exception):
+    """A seed step was rejected by QBO; the message names the step, the
+    entity, the QBO fault detail, and the payload that was sent."""
+
+
+def format_qbo_fault(exc: QboRequestError) -> str:
+    """Pull code/Message/Detail out of a QBO Fault body, if parseable."""
+    try:
+        fault = json.loads(exc.body)["Fault"]["Error"][0]
+        return (
+            f"code {fault.get('code')}: {fault.get('Message')}"
+            f" — {fault.get('Detail')}"
+        )
+    except Exception:
+        return f"HTTP {exc.status_code}: {exc.body[:300]}"
+
+
 class Seeder:
     def __init__(self, qbo: QboClient) -> None:
         self.qbo = qbo
+        self.step_label: str = "setup"
+
+    def step(self, label: str) -> None:
+        """Name the seed item being built, for failure reports."""
+        self.step_label = label
+
+    def _create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self.qbo.create(entity, payload)
+        except QboRequestError as exc:
+            raise SeedFailure(
+                f"[{self.step_label}] creating {entity} failed —"
+                f" {format_qbo_fault(exc)}\n"
+                f"  payload sent: {json.dumps(payload, default=str)}"
+            ) from exc
+
+    def _query(self, entity: str, where: str) -> list[dict[str, Any]]:
+        try:
+            return self.qbo.query(entity, where)
+        except QboRequestError as exc:
+            raise SeedFailure(
+                f"[{self.step_label}] querying {entity} ({where}) failed —"
+                f" {format_qbo_fault(exc)}"
+            ) from exc
 
     # ---------- ensure-helpers: find by name, create if missing ----------
 
     def ensure(self, entity: str, where: str, payload: dict[str, Any]) -> str:
-        rows = self.qbo.query(entity, where)
+        rows = self._query(entity, where)
         if rows:
             return str(rows[0]["Id"])
-        created = self.qbo.create(entity, payload)
+        created = self._create(entity, payload)
         return str(created[entity]["Id"])
 
     def vendor(self, name: str) -> str:
@@ -99,7 +140,7 @@ class Seeder:
         )
 
     def first_bank_account(self) -> str:
-        rows = self.qbo.query("Account", "AccountType = 'Bank'")
+        rows = self._query("Account", "AccountType = 'Bank'")
         if rows:
             return str(rows[0]["Id"])
         return self.account("CAROLUS Seed Bank", "Bank")
@@ -132,8 +173,10 @@ class Seeder:
             }],
         }
         if vendor:
-            payload["EntityRef"] = {"value": vendor, "Type": "Vendor"}
-        return str(self.qbo.create("Purchase", payload)["Purchase"]["Id"])
+            # v3 EntityRef sub-property is lowercase 'type' — uppercase 'Type'
+            # is an unsupported property and fails QBO's parse (code 2010)
+            payload["EntityRef"] = {"value": vendor, "type": "Vendor"}
+        return str(self._create("Purchase", payload)["Purchase"]["Id"])
 
     def bill(
         self, *, amount: float, txn_date: date, vendor: str, expense: str,
@@ -154,7 +197,7 @@ class Seeder:
         }
         if doc_number:
             payload["DocNumber"] = doc_number
-        return str(self.qbo.create("Bill", payload)["Bill"]["Id"])
+        return str(self._create("Bill", payload)["Bill"]["Id"])
 
     def journal_entry(
         self, *, amount: float, txn_date: date, debit: str, credit: str, note: str,
@@ -171,7 +214,7 @@ class Seeder:
                                             "AccountRef": {"value": credit}}},
             ],
         }
-        return str(self.qbo.create("JournalEntry", payload)["JournalEntry"]["Id"])
+        return str(self._create("JournalEntry", payload)["JournalEntry"]["Id"])
 
     def invoice(
         self, *, amount: float, txn_date: date, customer: str, item: str, note: str,
@@ -186,7 +229,7 @@ class Seeder:
                 "SalesItemLineDetail": {"ItemRef": {"value": item}},
             }],
         }
-        return str(self.qbo.create("Invoice", payload)["Invoice"]["Id"])
+        return str(self._create("Invoice", payload)["Invoice"]["Id"])
 
     def unapplied_payment(
         self, *, amount: float, txn_date: date, customer: str, note: str,
@@ -197,11 +240,12 @@ class Seeder:
             "TxnDate": txn_date.isoformat(),
             "PrivateNote": note,
         }
-        return str(self.qbo.create("Payment", payload)["Payment"]["Id"])
+        return str(self._create("Payment", payload)["Payment"]["Id"])
 
 
 def seed_all(seeder: Seeder) -> list[SeedItem]:
     """Create supporting objects + the 15 manifest violations."""
+    seeder.step("support objects: accounts, item, vendors, customers")
     bank = seeder.first_bank_account()
     suspense = seeder.account("CAROLUS Seed Suspense", "Other Current Asset")
     refund_exp = seeder.account("CAROLUS Seed Refund Expense", "Expense")
@@ -230,6 +274,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
             description=desc,
         ))
 
+    seeder.step("SEED-1 R010 duplicate purchase pair")
     # 1. R010 — duplicate purchase pair; the LATER twin is the manifest item
     seeder.purchase(amount=750.00, txn_date=TODAY - timedelta(days=5),
                     bank=bank, expense=office, vendor=vendor_a,
@@ -239,6 +284,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
                          note=f"{TAG}-1 duplicate payment later twin")
     add(1, "R010", "Purchase", p2, "same vendor+amount 3 days apart")
 
+    seeder.step("SEED-2 R011 duplicate doc number bills")
     # 2. R011 — two bills, same vendor, same DocNumber
     seeder.bill(amount=410.00, txn_date=TODAY - timedelta(days=20),
                 vendor=vendor_d, expense=office, doc_number="CAROLUS-DUP-1",
@@ -248,12 +294,14 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
                      note=f"{TAG}-2 duplicate doc number")
     add(2, "R011", "Bill", b2, "same vendor + DocNumber twice")
 
+    seeder.step("SEED-3 R012 round-number JE")
     # 3. R012 — round-number JE
     je = seeder.journal_entry(amount=5000.00, txn_date=TODAY - timedelta(days=3),
                               debit=office, credit=bank,
                               note=f"{TAG}-3 round number JE")
     add(3, "R012", "JournalEntry", je, "$5,000.00 round JE line")
 
+    seeder.step("SEED-4 R013 aged suspense balance")
     # 4. R013 — aged suspense balance (40 days; under R016's 45 on purpose)
     s = seeder.purchase(amount=200.00, txn_date=TODAY - timedelta(days=40),
                         bank=bank, expense=suspense,
@@ -261,6 +309,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     add(4, "R013", "Purchase", s, "suspense balance aged 40d",
         target="account", target_qbo_id=suspense)
 
+    seeder.step("SEED-5 R014 credit-side expense balance")
     # 5. R014 — credit-side expense balance this month
     je_refund = seeder.journal_entry(
         amount=300.00, txn_date=TODAY.replace(day=min(TODAY.day, 5)),
@@ -269,24 +318,28 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
         "expense account net credit this month",
         target="account", target_qbo_id=refund_exp)
 
+    seeder.step("SEED-6 R015 stale uncategorized")
     # 6. R015 — stale uncategorized (20 days)
     u = seeder.purchase(amount=150.00, txn_date=TODAY - timedelta(days=20),
                         bank=bank, expense=uncategorized,
                         note=f"{TAG}-6 stale uncategorized")
     add(6, "R015", "Purchase", u, "uncategorized for 20 days")
 
+    seeder.step("SEED-7 R016 backdated entry")
     # 7. R016 — backdated 60 days (created today)
     bd = seeder.purchase(amount=123.45, txn_date=TODAY - timedelta(days=60),
                          bank=bank, expense=office, vendor=vendor_a,
                          note=f"{TAG}-7 backdated entry")
     add(7, "R016", "Purchase", bd, "txn_date 60d before CreateTime")
 
+    seeder.step("SEED-8 R017 weekend JE")
     # 8. R017 — weekend JE (non-round amount to stay out of R012)
     wj = seeder.journal_entry(amount=77.10, txn_date=last_saturday(TODAY),
                               debit=office, credit=bank,
                               note=f"{TAG}-8 weekend JE")
     add(8, "R017", "JournalEntry", wj, "JE dated Saturday")
 
+    seeder.step("SEED-9 R020 vendor spend spike")
     # 9. R020 — vendor spend spike: $100 history, $4,000 this month
     seeder.purchase(amount=100.00, txn_date=months_ago_mid(TODAY, 3),
                     bank=bank, expense=office, vendor=vendor_c,
@@ -297,12 +350,14 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     add(9, "R020", "Purchase", spike, "month spend 40x trailing avg",
         target="entity", target_kind="vendor", target_qbo_id=vendor_c)
 
+    seeder.step("SEED-10 R021 large first vendor bill")
     # 10. R021 — first-ever vendor transaction at $6,000
     nb = seeder.bill(amount=6000.00, txn_date=TODAY - timedelta(days=6),
                      vendor=vendor_b, expense=office,
                      note=f"{TAG}-10 large first bill")
     add(10, "R021", "Bill", nb, "new vendor opens at $6,000")
 
+    seeder.step("SEED-11 R023 AR concentration invoice")
     # 11. R023 — A/R concentration: one $25,000 open invoice
     inv = seeder.invoice(amount=25000.00, txn_date=TODAY - timedelta(days=8),
                          customer=whale, item=service,
@@ -310,18 +365,21 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     add(11, "R023", "Invoice", inv, "whale customer dominates open AR",
         target="entity", target_kind="customer", target_qbo_id=whale)
 
+    seeder.step("SEED-12 R024 spend without vendor")
     # 12. R024 — $800 purchase with no vendor
     nv = seeder.purchase(amount=800.00, txn_date=TODAY - timedelta(days=2),
                          bank=bank, expense=office,
                          note=f"{TAG}-12 spend without vendor")
     add(12, "R024", "Purchase", nv, "no EntityRef on $800 spend")
 
+    seeder.step("SEED-13 R030 COGS without job")
     # 13. R030 — COGS without job
     cg = seeder.purchase(amount=400.00, txn_date=TODAY - timedelta(days=2),
                          bank=bank, expense=cogs, vendor=vendor_a,
                          note=f"{TAG}-13 COGS without job")
     add(13, "R030", "Purchase", cg, "untagged COGS $400")
 
+    seeder.step("SEED-14 R032 job margin negative")
     # 14. R032 — job underwater: billed $500, costs $2,000
     seeder.invoice(amount=500.00, txn_date=TODAY - timedelta(days=9),
                    customer=job, item=service,
@@ -332,6 +390,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     add(14, "R032", "Customer", job, "job margin -1500",
         target="job", target_qbo_id=job)
 
+    seeder.step("SEED-15 R033 unapplied payment")
     # 15. R033 — unapplied customer payment, 35 days old
     up = seeder.unapplied_payment(amount=1000.00,
                                   txn_date=TODAY - timedelta(days=35),
@@ -386,7 +445,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print("manifest stale or incomplete — reseeding")
 
-        items = seed_all(Seeder(qbo))
+        try:
+            items = seed_all(Seeder(qbo))
+        except SeedFailure as exc:
+            print(f"\nSEED ABORTED — {exc}", file=sys.stderr)
+            print("(no manifest written; objects created before this step"
+                  " will be found by name on the next run)", file=sys.stderr)
+            return 1
 
     manifest = {
         "realm": args.realm,

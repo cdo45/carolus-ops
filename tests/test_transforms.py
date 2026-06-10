@@ -251,7 +251,9 @@ def test_header_entity_resolution() -> None:
         "Invoice", {"CustomerRef": {"value": "200"}}, r) == CUSTOMER
     assert header_entity_id("Bill", {"VendorRef": {"value": "300"}}, r) == VENDOR
     assert header_entity_id(
+        "Purchase", {"EntityRef": {"value": "300", "type": "Vendor"}}, r) == VENDOR
+    assert header_entity_id(  # legacy/defensive: uppercase casing tolerated
         "Purchase", {"EntityRef": {"value": "300", "Type": "Vendor"}}, r) == VENDOR
     assert header_entity_id(
-        "Purchase", {"EntityRef": {"value": "777", "Type": "Employee"}}, r) is None
+        "Purchase", {"EntityRef": {"value": "777", "type": "Employee"}}, r) is None
     assert header_entity_id("JournalEntry", {}, r) is None

@@ -49,10 +49,11 @@ class QboServerError(QboError):
 
 
 class QboRequestError(QboError):
-    """Non-retryable 4xx from QBO."""
+    """Non-retryable 4xx from QBO. body carries the raw Fault JSON."""
 
     def __init__(self, status_code: int, body: str) -> None:
         self.status_code = status_code
+        self.body = body
         super().__init__(f"QBO request failed with {status_code}: {body[:500]}")
 
 
