@@ -19,6 +19,11 @@ from rules import (
     r015_stale_uncategorized,
     r016_backdated_entry,
     r017_weekend_je,
+    r020_vendor_spend_spike,
+    r021_new_vendor_large,
+    r022_payment_without_bill,
+    r023_ar_concentration,
+    r024_missing_vendor_on_spend,
 )
 from rules.base import validate_rule
 
@@ -33,6 +38,11 @@ ALL_RULES: tuple[ModuleType, ...] = (
     r015_stale_uncategorized,
     r016_backdated_entry,
     r017_weekend_je,
+    r020_vendor_spend_spike,
+    r021_new_vendor_large,
+    r022_payment_without_bill,
+    r023_ar_concentration,
+    r024_missing_vendor_on_spend,
 )
 
 for _rule in ALL_RULES:

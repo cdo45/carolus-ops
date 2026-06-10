@@ -86,7 +86,10 @@ COMPANY: dict[str, list[dict[str, Any]]] = {
     "BillPayment": [
         {"Id": "4001", "TxnDate": "2026-05-11", "TotalAmt": 320.00,
          "VendorRef": {"value": "300"}, "PayType": "Check",
-         "CheckPayment": {"BankAccountRef": {"value": "1"}}, **_META},
+         "CheckPayment": {"BankAccountRef": {"value": "1"}},
+         "Line": [{"Amount": 320.00,
+                   "LinkedTxn": [{"TxnId": "2001", "TxnType": "Bill"}]}],
+         **_META},
     ],
     "Purchase": [
         {"Id": "5001", "TxnDate": "2026-05-12", "TotalAmt": 89.99,

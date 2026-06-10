@@ -97,6 +97,21 @@ def _doc_number(payload: Payload) -> str | None:
     return text or None
 
 
+# Types whose payloads carry application links worth tracking.
+_LINKED_TYPES: frozenset[str] = frozenset({"Payment", "BillPayment"})
+
+
+def _has_linked_txn(txn_type: str, payload: Payload) -> bool | None:
+    """True/False for Payment & BillPayment (is this applied to anything?),
+    NULL for types where the question does not apply."""
+    if txn_type not in _LINKED_TYPES:
+        return None
+    candidates = list(payload.get("LinkedTxn") or [])
+    for line in payload.get("Line", []):
+        candidates.extend(line.get("LinkedTxn") or [])
+    return any(linked.get("TxnId") for linked in candidates)
+
+
 # ---------------------------------------------------------------- resolver
 
 
@@ -656,21 +671,23 @@ def _upsert_transaction(
         """
         INSERT INTO transactions
             (client_id, qbo_id, txn_type, txn_date, amount, entity_id,
-             qbo_synced_at, doc_number, qbo_created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+             qbo_synced_at, doc_number, qbo_created_at, has_linked_txn)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (client_id, qbo_id, txn_type) DO UPDATE SET
             txn_date = excluded.txn_date,
             amount = excluded.amount,
             entity_id = excluded.entity_id,
             qbo_synced_at = excluded.qbo_synced_at,
             doc_number = excluded.doc_number,
-            qbo_created_at = excluded.qbo_created_at
+            qbo_created_at = excluded.qbo_created_at,
+            has_linked_txn = excluded.has_linked_txn
         WHERE (transactions.txn_date, transactions.amount, transactions.entity_id,
                transactions.qbo_synced_at, transactions.doc_number,
-               transactions.qbo_created_at)
+               transactions.qbo_created_at, transactions.has_linked_txn)
             IS DISTINCT FROM
             (excluded.txn_date, excluded.amount, excluded.entity_id,
-             excluded.qbo_synced_at, excluded.doc_number, excluded.qbo_created_at)
+             excluded.qbo_synced_at, excluded.doc_number, excluded.qbo_created_at,
+             excluded.has_linked_txn)
         RETURNING id
         """,
         (
@@ -683,6 +700,7 @@ def _upsert_transaction(
             _qbo_last_updated(p),
             _doc_number(p),
             _qbo_created(p),
+            _has_linked_txn(txn_type, p),
         ),
     )
     row = cur.fetchone()

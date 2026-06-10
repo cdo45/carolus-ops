@@ -94,6 +94,7 @@ def make_txn(
     qbo_id: str | None = None,
     doc_number: str | None = None,
     qbo_created_at: datetime | None = None,
+    has_linked_txn: bool | None = None,
     lines: Sequence[dict[str, Any]] = (),
 ) -> UUID:
     """Insert a transaction plus journal lines.
@@ -111,12 +112,13 @@ def make_txn(
     row = conn.execute(
         """
         INSERT INTO transactions (client_id, qbo_id, txn_type, txn_date,
-                                  amount, entity_id, doc_number, qbo_created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                                  amount, entity_id, doc_number,
+                                  qbo_created_at, has_linked_txn)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
         """,
         (client_id, qbo_id or next_qbo_id("T"), txn_type,
          txn_date or date(2026, 5, 15), Decimal(str(amount)), entity_id,
-         doc_number, qbo_created_at),
+         doc_number, qbo_created_at, has_linked_txn),
     ).fetchone()
     assert row is not None
     txn_id: UUID = row[0]
@@ -145,11 +147,12 @@ def balanced_purchase(
     entity_id: UUID | None = None,
     job: UUID | None = None,
     txn_type: str = "Purchase",
+    has_linked_txn: bool | None = None,
 ) -> UUID:
     """The common case: one debit to expense, one credit from bank."""
     return make_txn(
         conn, client_id, txn_type=txn_type, txn_date=txn_date,
-        entity_id=entity_id, amount=amount,
+        entity_id=entity_id, amount=amount, has_linked_txn=has_linked_txn,
         lines=[
             {"account": expense, "amount": amount, "posting": "debit", "job": job},
             {"account": bank, "amount": amount, "posting": "credit"},

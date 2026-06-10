@@ -114,6 +114,17 @@ def test_provenance_fields_extracted(conn: psycopg.Connection) -> None:
     assert doc_number == "INV-778"
     assert created_at is not None and created_at < synced_at
 
+    linked = {
+        (qbo_id, txn_type): has_linked
+        for qbo_id, txn_type, has_linked in conn.execute(
+            "SELECT qbo_id, txn_type, has_linked_txn FROM transactions"
+            " WHERE client_id = %s AND txn_type IN ('Payment', 'BillPayment')",
+            (client_id,),
+        ).fetchall()
+    }
+    assert linked[("4001", "BillPayment")] is True, "linked to bill 2001"
+    assert linked[("3001", "Payment")] is False, "unapplied customer payment"
+
 
 def test_job_linkage_and_attribution(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
