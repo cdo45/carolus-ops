@@ -55,13 +55,19 @@ def applied_versions(conn: psycopg.Connection) -> set[str]:
     rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
     return {row[0] for row in rows}
 
-def migrate(database_url: str) -> list[Migration]:
-    """Apply all pending migrations in order; return those applied."""
+def migrate(database_url: str, up_to: str | None = None) -> list[Migration]:
+    """Apply all pending migrations in order; return those applied.
+
+    up_to: stop after applying this version (inclusive) — used by tests to
+    stage a database at a historical schema state before applying the rest.
+    """
     applied: list[Migration] = []
     with psycopg.connect(database_url) as conn:
         done = applied_versions(conn)
         conn.commit()
         for migration in discover_migrations():
+            if up_to is not None and migration.version > up_to:
+                break
             if migration.version in done:
                 continue
             with conn.transaction():

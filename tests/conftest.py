@@ -22,15 +22,22 @@ from db.migrate import migrate
 
 
 @pytest.fixture
-def conn() -> Iterator[psycopg.Connection]:
+def scratch_db_url() -> str:
+    """Scratch database reset to an EMPTY public schema — no migrations.
+    For tests that need to stage historical schema states themselves."""
     url = os.environ.get("CAROLUS_TEST_DB")
     if not url:
         pytest.skip("CAROLUS_TEST_DB not set (scratch database required)")
     with psycopg.connect(url, autocommit=True) as admin:
         admin.execute("DROP SCHEMA public CASCADE")
         admin.execute("CREATE SCHEMA public")
-    migrate(url)
-    with psycopg.connect(url) as connection:
+    return url
+
+
+@pytest.fixture
+def conn(scratch_db_url: str) -> Iterator[psycopg.Connection]:
+    migrate(scratch_db_url)
+    with psycopg.connect(scratch_db_url) as connection:
         yield connection
 
 
