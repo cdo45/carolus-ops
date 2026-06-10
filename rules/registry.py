@@ -24,6 +24,10 @@ from rules import (
     r022_payment_without_bill,
     r023_ar_concentration,
     r024_missing_vendor_on_spend,
+    r030_cogs_without_job,
+    r031_job_cost_after_completion,
+    r032_job_margin_negative,
+    r033_deposit_unapplied,
 )
 from rules.base import validate_rule
 
@@ -43,6 +47,10 @@ ALL_RULES: tuple[ModuleType, ...] = (
     r022_payment_without_bill,
     r023_ar_concentration,
     r024_missing_vendor_on_spend,
+    r030_cogs_without_job,
+    r031_job_cost_after_completion,
+    r032_job_margin_negative,
+    r033_deposit_unapplied,
 )
 
 for _rule in ALL_RULES:
