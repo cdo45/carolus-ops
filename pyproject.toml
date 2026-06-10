@@ -8,6 +8,7 @@ dependencies = [
     "psycopg[binary]",
     "pydantic",
     "python-dotenv",
+    "cryptography",
 ]
 
 [dependency-groups]
