@@ -74,8 +74,10 @@ def test_migrations_apply_over_phase1_era_data(scratch_db_url: str) -> None:
             )
         conn.commit()
 
-    applied = migrate(scratch_db_url)  # 0002..0006 over populated tables
-    assert [m.version for m in applied] == ["0002", "0003", "0004", "0005", "0006"]
+    applied = migrate(scratch_db_url)  # 0002.. over populated tables
+    assert [m.version for m in applied][:5] == [
+        "0002", "0003", "0004", "0005", "0006",
+    ]
 
     with psycopg.connect(scratch_db_url) as conn:
         rows = conn.execute(
@@ -97,4 +99,66 @@ def test_migrations_apply_over_phase1_era_data(scratch_db_url: str) -> None:
                 """,
                 (client[0],),
             )
+        conn.rollback()
+
+
+def test_facts_taxonomy_migration_over_old_vocabulary(scratch_db_url: str) -> None:
+    """0007 must remap facts written under the Phase 1 category enum —
+    including surviving the append-only trigger, which blocks ordinary
+    category rewrites."""
+    migrate(scratch_db_url, up_to="0006")
+
+    old_to_new = {
+        "financial": "accounting_policy",
+        "tax": "accounting_policy",
+        "compliance": "accounting_policy",
+        "operational": "operations",
+        "preference": "preferences",
+        "context": "entity_profile",
+    }
+    with psycopg.connect(scratch_db_url) as conn:
+        client = conn.execute(
+            "INSERT INTO clients (name) VALUES ('Taxonomy Co') RETURNING id"
+        ).fetchone()
+        assert client is not None
+        for old_category in old_to_new:
+            conn.execute(
+                """
+                INSERT INTO facts (client_id, category, statement,
+                                   source_type, source_ref)
+                VALUES (%s, %s, %s, 'carlos', 'carlos:setup-note')
+                """,
+                (client[0], old_category, f"legacy {old_category} fact"),
+            )
+        conn.commit()
+
+    applied = migrate(scratch_db_url)
+    assert applied and applied[0].version == "0007"
+
+    with psycopg.connect(scratch_db_url) as conn:
+        rows = conn.execute(
+            "SELECT statement, category FROM facts ORDER BY statement"
+        ).fetchall()
+        assert {
+            statement.removeprefix("legacy ").removesuffix(" fact"): category
+            for statement, category in rows
+        } == old_to_new, "every old category remapped to the agreed taxonomy"
+
+        with pytest.raises(CheckViolation):  # old vocabulary now rejected
+            conn.execute(
+                """
+                INSERT INTO facts (client_id, category, statement,
+                                   source_type, source_ref)
+                VALUES (%s, 'financial', 'x', 'carlos', 'carlos:n')
+                """,
+                (client[0],),
+            )
+        conn.rollback()
+
+        # the trigger is re-enabled and still guards content (incl. the
+        # new effective_date column)
+        from psycopg.errors import RaiseException
+
+        with pytest.raises(RaiseException, match="append-only"):
+            conn.execute("UPDATE facts SET effective_date = '2026-01-01'")
         conn.rollback()
