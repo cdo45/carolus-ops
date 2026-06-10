@@ -734,7 +734,7 @@ def _flag_once(
         """
         INSERT INTO flags
             (client_id, rule_code, severity, status, source_type, source_ref, detail)
-        SELECT %(client_id)s, %(rule_code)s, 'warning', 'open',
+        SELECT %(client_id)s, %(rule_code)s, 'warn', 'open',
                %(source_type)s, %(source_ref)s, %(detail)s
         WHERE NOT EXISTS (
             SELECT 1 FROM flags
