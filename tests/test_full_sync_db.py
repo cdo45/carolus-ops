@@ -1,50 +1,26 @@
 """DB-backed idempotency test for the full sync (the phase-gate property,
 proven against fixtures; the live-sandbox version is tests/gate_phase1.py).
 
-Skipped unless CAROLUS_TEST_DB points at a scratch Postgres database —
-the schema there is DROPPED and rebuilt every run. Not part of plain CI.
-
-Run locally:
-    CAROLUS_TEST_DB=postgresql://carolus:...@localhost:5432/carolus_test \
-        uv run pytest tests/test_full_sync_db.py
+Uses the scratch-database `conn` fixture from conftest.py — skipped unless
+CAROLUS_TEST_DB is set; not part of plain CI.
 """
 
 from __future__ import annotations
 
-import os
-from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
 
 import psycopg
-import pytest
 
-from db.migrate import migrate
 from sync.full_sync import run_full_sync
+from tests.conftest import make_client
 from tests.qbo_fixtures import FakeQbo
-
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("CAROLUS_TEST_DB"),
-    reason="CAROLUS_TEST_DB not set (scratch database required)",
-)
 
 CANONICAL_TABLES = (
     "clients", "accounts", "entities", "jobs", "transactions",
     "journal_lines", "facts", "flags", "kpi_values", "vendor_patterns",
     "documents", "emails",
 )
-
-
-@pytest.fixture
-def conn() -> Iterator[psycopg.Connection]:
-    url = os.environ["CAROLUS_TEST_DB"]
-    with psycopg.connect(url, autocommit=True) as admin:
-        admin.execute("DROP SCHEMA public CASCADE")
-        admin.execute("CREATE SCHEMA public")
-    migrate(url)
-    with psycopg.connect(url) as connection:
-        yield connection
 
 
 def snapshot(conn: psycopg.Connection) -> dict[str, set[tuple[str, str]]]:
@@ -57,16 +33,6 @@ def snapshot(conn: psycopg.Connection) -> dict[str, set[tuple[str, str]]]:
         )
         for table in CANONICAL_TABLES
     }
-
-
-def make_client(conn: psycopg.Connection) -> UUID:
-    row = conn.execute(
-        "INSERT INTO clients (name, qbo_realm_id) VALUES (%s, %s) RETURNING id",
-        ("Fixture Co", "test-realm-1"),
-    ).fetchone()
-    assert row is not None
-    conn.commit()
-    return row[0]
 
 
 def test_full_sync_twice_is_idempotent(conn: psycopg.Connection) -> None:

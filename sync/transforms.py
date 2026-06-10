@@ -58,6 +58,13 @@ def _dec(value: Any) -> Decimal:
         return Decimal("0.00")
 
 
+def _is_deleted(payload: Payload) -> bool:
+    """CDC deletion stubs ({Id, status: Deleted}) carry no entity content —
+    they must never be transformed into canonical values. Deletion itself is
+    applied separately by sync.incremental (soft flag, never hard delete)."""
+    return payload.get("status") == "Deleted"
+
+
 def _ref_value(ref: Any) -> str | None:
     if isinstance(ref, Mapping):
         value = ref.get("value")
@@ -763,6 +770,8 @@ def _build_resolver(conn: psycopg.Connection, client_id: UUID,
     ).fetchall():
         resolver.jobs[qbo_id] = job_id
     for qbo_id, payload in staged_items.items():
+        if _is_deleted(payload):
+            continue
         resolver.items[qbo_id] = ItemAccounts(
             income_account_qbo_id=_ref_value(payload.get("IncomeAccountRef")),
             expense_account_qbo_id=_ref_value(payload.get("ExpenseAccountRef")),
@@ -780,11 +789,19 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
     flags_created = 0
 
     for payload in staged.get("Account", {}).values():
+        if _is_deleted(payload):
+            continue
         written["accounts"] += _upsert_account(conn, client_id, payload)
-    customers = staged.get("Customer", {})
+    customers = {
+        qbo_id: payload
+        for qbo_id, payload in staged.get("Customer", {}).items()
+        if not _is_deleted(payload)
+    }
     for payload in customers.values():
         written["entities"] += _upsert_entity(conn, client_id, "customer", payload)
     for payload in staged.get("Vendor", {}).values():
+        if _is_deleted(payload):
+            continue
         written["entities"] += _upsert_entity(conn, client_id, "vendor", payload)
 
     # QBO jobs are sub-customers (Job=true); parent comes from ParentRef.
@@ -805,6 +822,8 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
 
     for txn_type in TRANSACTION_ENTITIES:
         for qbo_id, payload in staged.get(txn_type, {}).items():
+            if _is_deleted(payload):
+                continue
             entity_id = header_entity_id(txn_type, payload, resolver)
             txn_id, txn_written = _upsert_transaction(
                 conn, client_id, txn_type, payload, entity_id
