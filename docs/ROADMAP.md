@@ -56,6 +56,26 @@ QBO_ENVIRONMENT=sandbox; its manifest lives in data/ (gitignored).
 The same lifecycle properties are CI-tested in tests/test_rules_engine.py
 and per-rule fire/non-fire cases in tests/test_rules_*.py.
 
+## GATE — Phase 3 (how to run it)
+
+Fully local: DB-backed with canned model outputs — **no live LLM call,
+no QBO sandbox**. Needs a scratch Postgres database (the gate DROPS and
+rebuilds its schema; it refuses to run against DATABASE_URL):
+
+```sh
+CAROLUS_TEST_DB=postgresql://carolus:...@localhost:5432/carolus_test \
+    uv run python -m tests.gate_phase3
+```
+
+Checks: every planted violation (fake source_ref, near-duplicate,
+over-length) rejected with the correct reason code; zero facts with
+dangling source_refs (SQL join proof); ≥90% of valid ops applied;
+supersede chain integrity with retired facts never rendering;
+byte-identical re-renders with single-fact diffs confined to their
+section. Must print `GATE: PASS (5/5)` before Phase 4 work starts.
+The same properties are CI-tested across tests/test_fact_store.py,
+test_validator.py, test_render.py, and test_extract.py.
+
 ## Sequence notes
 
 - P0–P5 build the machine; P6 makes it client-visible; P7 proves the whole
