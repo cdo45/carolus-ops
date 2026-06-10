@@ -119,12 +119,28 @@ class QboClient:
             },
         )
 
+    def create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a new entity (e.g. create("Bill", {...})) and return the
+        response body ({"Bill": {...}}).
+
+        Used by test seeders today; production write paths arrive with
+        Phase 5 risk gating. POSTs are NOT retried on 5xx — QBO gives no
+        idempotency guarantee and a replayed POST double-creates. (401
+        refresh-retry and 429 — not processed — still apply.)
+        """
+        return self._request(entity.lower(), json_body=payload)
+
     # ---------------- transport ----------------
 
     def _request(
-        self, path: str, params: Mapping[str, str] | None = None
+        self,
+        path: str,
+        params: Mapping[str, str] | None = None,
+        *,
+        json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/v3/company/{self.realm_id}/{path}"
+        is_post = json_body is not None
         refreshed_once = False
         force_next = False
         backoff_tries = 0
@@ -134,15 +150,25 @@ class QboClient:
                 self.conn, self.client_id, force_refresh=force_next
             )
             force_next = False
-            response = requests.get(
-                url,
-                params=dict(params or {}),
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/json",
-                },
-                timeout=_HTTP_TIMEOUT,
-            )
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            }
+            if is_post:
+                response = requests.post(
+                    url,
+                    params=dict(params or {}),
+                    json=json_body,
+                    headers=headers,
+                    timeout=_HTTP_TIMEOUT,
+                )
+            else:
+                response = requests.get(
+                    url,
+                    params=dict(params or {}),
+                    headers=headers,
+                    timeout=_HTTP_TIMEOUT,
+                )
             status = response.status_code
             if status == 401:
                 if refreshed_once:
@@ -152,11 +178,21 @@ class QboClient:
                 refreshed_once = True
                 force_next = True
                 continue
-            if status == 429 or status >= 500:
+            if status == 429:
                 backoff_tries += 1
                 if backoff_tries >= MAX_TRIES:
-                    if status == 429:
-                        raise QboRateLimited(f"429 after {backoff_tries} tries")
+                    raise QboRateLimited(f"429 after {backoff_tries} tries")
+                self._sleep(delay)
+                delay *= 2
+                continue
+            if status >= 500:
+                if is_post:
+                    raise QboServerError(
+                        f"{status} on POST {path} — not retried (a replayed"
+                        " POST may double-create)"
+                    )
+                backoff_tries += 1
+                if backoff_tries >= MAX_TRIES:
                     raise QboServerError(f"{status} after {backoff_tries} tries")
                 self._sleep(delay)
                 delay *= 2

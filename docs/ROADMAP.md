@@ -36,6 +36,26 @@ Checks: (a) full sync twice → second run writes zero canonical rows;
 `transform_warning` flag. The same properties run in CI against fixtures
 (`tests/test_full_sync_db.py`, `tests/test_incremental.py`).
 
+## GATE — Phase 2 (how to run it)
+
+Runs against the **live QBO sandbox** (never CI), in the same calendar
+month as seeding (R020's window is the current month). Must print
+`GATE: PASS (3/3)` before Phase 3 work starts.
+
+```sh
+uv run python -m db.migrate                          # 0003-0006 apply
+uv run python -m tests.seed_errors --realm <realm>   # plant 15 violations
+uv run python -m tests.gate_phase2 --realm <realm>   # sync -> engine -> assert
+```
+
+Checks: (a) ≥14/15 seeded violations flagged open with the expected
+rule_code on the correct canonical row; (b) every open engine flag's
+source_ref resolves to a real canonical row; (c) a second engine run
+creates zero new open flags. The seeder refuses to run unless
+QBO_ENVIRONMENT=sandbox; its manifest lives in data/ (gitignored).
+The same lifecycle properties are CI-tested in tests/test_rules_engine.py
+and per-rule fire/non-fire cases in tests/test_rules_*.py.
+
 ## Sequence notes
 
 - P0–P5 build the machine; P6 makes it client-visible; P7 proves the whole

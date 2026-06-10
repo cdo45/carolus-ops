@@ -46,7 +46,11 @@ class Transport:
     sleeps: list[float] = field(default_factory=list)
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
-        self.calls.append({"url": url, **kwargs})
+        self.calls.append({"url": url, "method": "GET", **kwargs})
+        return self.responses.pop(0)
+
+    def post(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append({"url": url, "method": "POST", **kwargs})
         return self.responses.pop(0)
 
     def token(self, conn: Any, client_id: Any, *, force_refresh: bool = False) -> str:
@@ -59,6 +63,7 @@ def make_client(
 ) -> tuple[QboClient, Transport]:
     transport = Transport(responses=responses)
     monkeypatch.setattr(qbo_client.requests, "get", transport.get)
+    monkeypatch.setattr(qbo_client.requests, "post", transport.post)
     monkeypatch.setattr(tokens, "get_valid_access_token", transport.token)
     client = QboClient(
         conn=object(),  # type: ignore[arg-type]
@@ -177,6 +182,33 @@ def test_4xx_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     assert excinfo.value.status_code == 400
     assert len(transport.calls) == 1
     assert transport.sleeps == []
+
+
+def test_create_posts_and_returns_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, transport = make_client(
+        monkeypatch, [FakeResponse(payload={"Bill": {"Id": "77"}})]
+    )
+    body = client.create("Bill", {"VendorRef": {"value": "3"}})
+    assert body == {"Bill": {"Id": "77"}}
+    call = transport.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"].endswith(f"/v3/company/{REALM}/bill")
+    assert call["json"] == {"VendorRef": {"value": "3"}}
+
+
+def test_create_retries_401_but_not_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    client, transport = make_client(
+        monkeypatch,
+        [FakeResponse(status_code=401), FakeResponse(payload={"Bill": {"Id": "1"}})],
+    )
+    assert client.create("Bill", {})["Bill"]["Id"] == "1"
+    assert transport.token_calls == [False, True]
+
+    client2, transport2 = make_client(monkeypatch, [FakeResponse(status_code=502)])
+    with pytest.raises(QboServerError, match="not retried"):
+        client2.create("Bill", {})
+    assert len(transport2.calls) == 1, "a failed POST must never be replayed"
+    assert transport2.sleeps == []
 
 
 def test_cdc_and_report_paths(monkeypatch: pytest.MonkeyPatch) -> None:
