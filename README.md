@@ -42,6 +42,19 @@ cp .env.example .env     # fill values from Doppler — never commit .env
 uv run pytest            # should pass before you touch anything
 ```
 
+Connect a QBO company and sync it:
+
+```sh
+uv run python -m db.migrate                       # apply schema migrations
+uv run python -m sync.connect --name "Client"     # one-time OAuth consent
+uv run python -m sync.full_sync --realm <realm_id>     # baseline pull
+uv run python -m sync.incremental --realm <realm_id>   # nightly CDC delta
+```
+
+Phase gates live in `tests/` (`gate_phase1.py` runs against the live
+sandbox — see docs/ROADMAP.md). DB-backed tests run with a scratch DB:
+`CAROLUS_TEST_DB=postgresql://... uv run pytest`.
+
 ## Roadmap
 
 Phase plan and test gates: [docs/ROADMAP.md](docs/ROADMAP.md). The portal is

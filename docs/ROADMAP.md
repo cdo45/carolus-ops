@@ -17,6 +17,25 @@
 | P7 | Dress rehearsal: full simulated client month, portal included | 10–15 | Outputs verifiably correct; <3 hrs Carlos time |
 | P8 | Post-clients: Gusto payroll partner + WH-347 certified payroll | 20–25 | Payroll totals tie to Gusto to the penny; WH-347 output matches a known-good sample |
 
+## GATE — Phase 1 (how to run it)
+
+The phase-1 gate is code: `tests/gate_phase1.py`. It runs against the
+**live QBO sandbox** (never CI) and must print `GATE: PASS (3/3)` before
+Phase 2 work starts.
+
+```sh
+cp .env.example .env                 # fill from Doppler; generate APP_ENCRYPTION_KEY
+uv run python -m db.migrate          # apply schema
+uv run python -m sync.connect        # one-time sandbox OAuth consent
+uv run python -m tests.gate_phase1 --realm <sandbox_realm_id>
+```
+
+Checks: (a) full sync twice → second run writes zero canonical rows;
+(b) corrupted stored access token → transparent refresh recovery;
+(c) every transaction's journal lines net to zero or carry an open
+`transform_warning` flag. The same properties run in CI against fixtures
+(`tests/test_full_sync_db.py`, `tests/test_incremental.py`).
+
 ## Sequence notes
 
 - P0–P5 build the machine; P6 makes it client-visible; P7 proves the whole
