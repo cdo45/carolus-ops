@@ -1,0 +1,27 @@
+# =============================================================
+# CLIENT DATA NEVER ENTERS GIT.
+# Client books, statements, exports, and credentials live in
+# Postgres / R2 / Doppler — never in this repository. These
+# rules enforce that boundary. Do not weaken them.
+# =============================================================
+
+# Secrets and credentials
+.env*
+!.env.example
+*.pem
+
+# Client data and local working files
+/clients/
+/data/
+/downloads/
+*.sqlite
+
+# Python
+__pycache__/
+.venv/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
