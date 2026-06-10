@@ -35,7 +35,7 @@ from knowledge.validator import CONFIDENCE_NUMERIC, RejectedOp
 PROMPT_PATH: Path = (
     Path(__file__).resolve().parent.parent / "prompts" / "fact_extractor.md"
 )
-PROMPT_VERSION: str = "fact_extractor v1"
+PROMPT_VERSION: str = "fact_extractor v1.1"
 
 _FENCE = re.compile(r"^```[a-zA-Z]*\n(?P<body>.*)\n```$", re.DOTALL)
 
