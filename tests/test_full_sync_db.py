@@ -98,6 +98,23 @@ def test_lines_balance_or_are_flagged(conn: psycopg.Connection) -> None:
     assert [(r[0], r[1]) for r in unbalanced] == [("Invoice", "1002")]
 
 
+def test_provenance_fields_extracted(conn: psycopg.Connection) -> None:
+    client_id = make_client(conn)
+    run_full_sync(conn, client_id, "test-realm-1", qbo=FakeQbo())
+
+    row = conn.execute(
+        """
+        SELECT doc_number, qbo_created_at, qbo_synced_at FROM transactions
+        WHERE client_id = %s AND qbo_id = '2001' AND txn_type = 'Bill'
+        """,
+        (client_id,),
+    ).fetchone()
+    assert row is not None
+    doc_number, created_at, synced_at = row
+    assert doc_number == "INV-778"
+    assert created_at is not None and created_at < synced_at
+
+
 def test_job_linkage_and_attribution(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
     run_full_sync(conn, client_id, "test-realm-1", qbo=FakeQbo())

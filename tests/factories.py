@@ -92,6 +92,8 @@ def make_txn(
     amount: Decimal | str | float | None = None,
     entity_id: UUID | None = None,
     qbo_id: str | None = None,
+    doc_number: str | None = None,
+    qbo_created_at: datetime | None = None,
     lines: Sequence[dict[str, Any]] = (),
 ) -> UUID:
     """Insert a transaction plus journal lines.
@@ -109,11 +111,12 @@ def make_txn(
     row = conn.execute(
         """
         INSERT INTO transactions (client_id, qbo_id, txn_type, txn_date,
-                                  amount, entity_id)
-        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+                                  amount, entity_id, doc_number, qbo_created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
         """,
         (client_id, qbo_id or next_qbo_id("T"), txn_type,
-         txn_date or date(2026, 5, 15), Decimal(str(amount)), entity_id),
+         txn_date or date(2026, 5, 15), Decimal(str(amount)), entity_id,
+         doc_number, qbo_created_at),
     ).fetchone()
     assert row is not None
     txn_id: UUID = row[0]

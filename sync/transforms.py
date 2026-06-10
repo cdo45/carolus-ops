@@ -84,6 +84,19 @@ def _qbo_last_updated(payload: Payload) -> datetime | None:
     return datetime.fromisoformat(raw) if raw else None
 
 
+def _qbo_created(payload: Payload) -> datetime | None:
+    """QBO's CreateTime — when the entry was keyed in, vs txn_date when it
+    claims to have happened. Content-derived (no drift)."""
+    raw = (payload.get("MetaData") or {}).get("CreateTime")
+    return datetime.fromisoformat(raw) if raw else None
+
+
+def _doc_number(payload: Payload) -> str | None:
+    raw = payload.get("DocNumber")
+    text = str(raw).strip() if raw is not None else ""
+    return text or None
+
+
 # ---------------------------------------------------------------- resolver
 
 
@@ -642,18 +655,22 @@ def _upsert_transaction(
     cur = conn.execute(
         """
         INSERT INTO transactions
-            (client_id, qbo_id, txn_type, txn_date, amount, entity_id, qbo_synced_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (client_id, qbo_id, txn_type, txn_date, amount, entity_id,
+             qbo_synced_at, doc_number, qbo_created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (client_id, qbo_id, txn_type) DO UPDATE SET
             txn_date = excluded.txn_date,
             amount = excluded.amount,
             entity_id = excluded.entity_id,
-            qbo_synced_at = excluded.qbo_synced_at
+            qbo_synced_at = excluded.qbo_synced_at,
+            doc_number = excluded.doc_number,
+            qbo_created_at = excluded.qbo_created_at
         WHERE (transactions.txn_date, transactions.amount, transactions.entity_id,
-               transactions.qbo_synced_at)
+               transactions.qbo_synced_at, transactions.doc_number,
+               transactions.qbo_created_at)
             IS DISTINCT FROM
             (excluded.txn_date, excluded.amount, excluded.entity_id,
-             excluded.qbo_synced_at)
+             excluded.qbo_synced_at, excluded.doc_number, excluded.qbo_created_at)
         RETURNING id
         """,
         (
@@ -664,6 +681,8 @@ def _upsert_transaction(
             transaction_amount(txn_type, p),
             entity_id,
             _qbo_last_updated(p),
+            _doc_number(p),
+            _qbo_created(p),
         ),
     )
     row = cur.fetchone()

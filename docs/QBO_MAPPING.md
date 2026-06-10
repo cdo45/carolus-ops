@@ -25,9 +25,10 @@ is an employee therefore gets `entity_id = NULL` until then.
 - `transactions.entity_id` ← header ref: `CustomerRef` (Invoice, Payment,
   CreditMemo), `VendorRef` (Bill, BillPayment, VendorCredit),
   `EntityRef` + its `Type` (Purchase). JournalEntry and Deposit have none.
-- `transactions.qbo_synced_at` ← payload `MetaData.LastUpdatedTime` —
-  content-derived (NOT wall-clock) so identical payloads re-transform to
-  identical rows.
+- `transactions.qbo_synced_at` ← payload `MetaData.LastUpdatedTime`;
+  `transactions.qbo_created_at` ← `MetaData.CreateTime`;
+  `transactions.doc_number` ← `DocNumber`. All content-derived (NOT
+  wall-clock) so identical payloads re-transform to identical rows.
 - `doc_status` and `review_tier` are curated columns: sync sets the
   default on insert and never overwrites them. Same for
   `jobs.contract_amount`.

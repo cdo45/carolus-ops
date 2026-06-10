@@ -8,12 +8,31 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from rules import r000_unbalanced_lines, r001_orphan_lines
+from rules import (
+    r000_unbalanced_lines,
+    r001_orphan_lines,
+    r010_duplicate_payment,
+    r011_duplicate_bill,
+    r012_round_number_je,
+    r013_suspense_aging,
+    r014_negative_expense_balance,
+    r015_stale_uncategorized,
+    r016_backdated_entry,
+    r017_weekend_je,
+)
 from rules.base import validate_rule
 
 ALL_RULES: tuple[ModuleType, ...] = (
     r000_unbalanced_lines,
     r001_orphan_lines,
+    r010_duplicate_payment,
+    r011_duplicate_bill,
+    r012_round_number_je,
+    r013_suspense_aging,
+    r014_negative_expense_balance,
+    r015_stale_uncategorized,
+    r016_backdated_entry,
+    r017_weekend_je,
 )
 
 for _rule in ALL_RULES:

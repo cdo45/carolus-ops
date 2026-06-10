@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-_META = {"MetaData": {"LastUpdatedTime": "2026-05-20T10:00:00-07:00"}}
+_META = {
+    "MetaData": {
+        "CreateTime": "2026-05-20T09:00:00-07:00",
+        "LastUpdatedTime": "2026-05-20T10:00:00-07:00",
+    }
+}
 
 COMPANY: dict[str, list[dict[str, Any]]] = {
     "Account": [
@@ -63,6 +68,7 @@ COMPANY: dict[str, list[dict[str, Any]]] = {
     ],
     "Bill": [
         {"Id": "2001", "TxnDate": "2026-05-03", "TotalAmt": 320.00,
+         "DocNumber": "INV-778",
          "VendorRef": {"value": "300"},
          "Line": [
              {"Amount": 200.00, "Description": "lumber",
