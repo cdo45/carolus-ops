@@ -180,7 +180,7 @@ def test_support_object_payload_shapes(seeder: Seeder) -> None:
 
 def test_seed_all_emits_only_valid_shapes(seeder: Seeder) -> None:
     """Every payload the full seeding flow sends, checked in one sweep."""
-    items = seed_all(seeder)
+    items = seed_all(seeder, "abc123")
 
     assert len(items) == 21
     assert len({item.rule_code for item in items}) == 21
@@ -209,6 +209,39 @@ def test_seed_all_emits_only_valid_shapes(seeder: Seeder) -> None:
         assert not bad_keys, (
             f"{entity} payload contains uppercase 'Type' — QBO fault 2010"
         )
+
+
+def test_generations_mint_unique_entities() -> None:
+    """The pollution invariant: two seeding generations share NO
+    history-sensitive entities, and history-sensitive amounts are salted —
+    so trailing-window/first-ever rules always see clean history."""
+    generations: dict[str, tuple[set[str], list[float]]] = {}
+    for nonce in ("aaaaaa", "bbbbbb"):
+        seeder = Seeder(RecordingQbo())  # type: ignore[arg-type]
+        seed_all(seeder, nonce)
+        names = {
+            payload["DisplayName"]
+            for entity, payload in recorder(seeder).created
+            if entity in ("Vendor", "Customer")
+        }
+        purchase_amounts = sorted(
+            payload["Line"][0]["Amount"]
+            for entity, payload in recorder(seeder).created
+            if entity == "Purchase"
+        )
+        generations[nonce] = (names, purchase_amounts)
+
+    names_a, amounts_a = generations["aaaaaa"]
+    names_b, amounts_b = generations["bbbbbb"]
+    assert names_a and names_a.isdisjoint(names_b), (
+        "no vendor/customer may be shared across generations"
+    )
+    assert all("AAAAAA" in name for name in names_a), (
+        "every minted entity carries its generation nonce"
+    )
+    assert amounts_a != amounts_b, (
+        "history-sensitive amounts must be salted per generation"
+    )
 
 
 # ------------------------------------------------------------ error reporting

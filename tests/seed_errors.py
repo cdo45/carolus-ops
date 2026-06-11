@@ -11,8 +11,19 @@ enter git). Every seeded transaction's PrivateNote is tagged
 
 Idempotent-ish: re-runs read the existing manifest, verify each seeded
 transaction still exists in the sandbox, and create only what's missing.
-Supporting objects (vendors, accounts, items, customers) are found by
-name before being created.
+
+GENERATION ISOLATION: every seeding generation mints a nonce and creates
+its OWN vendors/customers ('CAROLUS SEED <nonce> <role>') for every seed
+that depends on entity history (R010's pair, R011's doc numbers, R020's
+baseline, R021's first-transaction, R023's whale, R027's twins, R032/R035
+jobs), and salts history-sensitive amounts by the nonce — so rules with
+trailing-window or first-ever semantics see clean history every reseed,
+no matter how many old generations the sandbox has accumulated. Old
+generations are left alone: tagged, inert, harmless. Stable-by-design
+names (accounts, the service item) are account-level and accumulate
+safely. Known limit: R023's A/R share dilutes as old generations pile up
+open invoices; if it starts missing, void old CAROLUS SEED invoices.
+Supporting objects are found by name before being created.
 
 REFUSES to run unless QBO_ENVIRONMENT=sandbox. Timing note: R020's spike
 window is the current calendar month — run the gate in the same month as
@@ -24,6 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
@@ -245,8 +257,16 @@ class Seeder:
         return str(self._create("Payment", payload)["Payment"]["Id"])
 
 
-def seed_all(seeder: Seeder) -> list[SeedItem]:
-    """Create supporting objects + the 15 manifest violations."""
+def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
+    """Create this generation's objects + the 21 manifest violations.
+
+    nonce: per-generation token — history-sensitive entities get
+    generation-unique names; history-sensitive amounts get a cent salt
+    derived from the nonce.
+    """
+    mint = f"CAROLUS SEED {nonce.upper()}"
+    salt = (int(nonce, 16) % 89 + 1) / 100.0  # 0.01-0.89 per generation
+
     seeder.step("support objects: accounts, item, vendors, customers")
     bank = seeder.first_bank_account()
     suspense = seeder.account("CAROLUS Seed Suspense", "Other Current Asset")
@@ -257,13 +277,13 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     uncategorized = seeder.account("Uncategorized Expense", "Expense")
     service = seeder.item("CAROLUS Seed Service", income)
 
-    vendor_a = seeder.vendor("CAROLUS SEED VENDOR A")  # duplicate pair
-    vendor_b = seeder.vendor("CAROLUS SEED VENDOR B")  # big opener
-    vendor_c = seeder.vendor("CAROLUS SEED VENDOR C")  # spike
-    vendor_d = seeder.vendor("CAROLUS SEED VENDOR D")  # duplicate doc number
-    whale = seeder.customer("CAROLUS SEED WHALE CORP")
-    cust = seeder.customer("CAROLUS SEED CUSTOMER")
-    job = seeder.customer("CAROLUS SEED JOB", parent_id=cust)
+    vendor_a = seeder.vendor(f"{mint} VENDOR A")  # duplicate pair
+    vendor_b = seeder.vendor(f"{mint} VENDOR B")  # big opener: MUST be new
+    vendor_c = seeder.vendor(f"{mint} VENDOR C")  # spike baseline
+    vendor_d = seeder.vendor(f"{mint} VENDOR D")  # duplicate doc number
+    whale = seeder.customer(f"{mint} WHALE CORP")
+    cust = seeder.customer(f"{mint} CUSTOMER")
+    job = seeder.customer(f"{mint} JOB", parent_id=cust)
 
     items: list[SeedItem] = []
 
@@ -279,21 +299,21 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     seeder.step("SEED-1 R010 duplicate purchase pair")
     # 1. R010 — duplicate purchase pair; the LATER twin is the manifest item
-    seeder.purchase(amount=750.00, txn_date=TODAY - timedelta(days=5),
+    seeder.purchase(amount=750.00 + salt, txn_date=TODAY - timedelta(days=5),
                     bank=bank, expense=office, vendor=vendor_a,
                     note=f"{TAG}-SUPPORT-1 earlier twin")
-    p2 = seeder.purchase(amount=750.00, txn_date=TODAY - timedelta(days=2),
+    p2 = seeder.purchase(amount=750.00 + salt, txn_date=TODAY - timedelta(days=2),
                          bank=bank, expense=office, vendor=vendor_a,
                          note=f"{TAG}-1 duplicate payment later twin")
     add(1, "R010", "Purchase", p2, "same vendor+amount 3 days apart")
 
     seeder.step("SEED-2 R011 duplicate doc number bills")
     # 2. R011 — two bills, same vendor, same DocNumber
-    seeder.bill(amount=410.00, txn_date=TODAY - timedelta(days=20),
-                vendor=vendor_d, expense=office, doc_number="CAROLUS-DUP-1",
+    seeder.bill(amount=410.00 + salt, txn_date=TODAY - timedelta(days=20),
+                vendor=vendor_d, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
                 note=f"{TAG}-SUPPORT-2 first entry")
-    b2 = seeder.bill(amount=410.00, txn_date=TODAY - timedelta(days=4),
-                     vendor=vendor_d, expense=office, doc_number="CAROLUS-DUP-1",
+    b2 = seeder.bill(amount=410.00 + salt, txn_date=TODAY - timedelta(days=4),
+                     vendor=vendor_d, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
                      note=f"{TAG}-2 duplicate doc number")
     add(2, "R011", "Bill", b2, "same vendor + DocNumber twice")
 
@@ -345,7 +365,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     seeder.step("SEED-9 R020 vendor spend spike")
     # 9. R020 — v2: 3 months of $100 history, then $6,000 this month
     for months_ago in (1, 2, 3):
-        seeder.purchase(amount=100.00,
+        seeder.purchase(amount=100.00 + salt,
                         txn_date=months_ago_mid(TODAY, months_ago),
                         bank=bank, expense=office, vendor=vendor_c,
                         note=f"{TAG}-SUPPORT-9 trailing history"
@@ -358,7 +378,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     seeder.step("SEED-10 R021 large first vendor bill")
     # 10. R021 — first-ever vendor transaction at $6,000
-    nb = seeder.bill(amount=6000.00, txn_date=TODAY - timedelta(days=6),
+    nb = seeder.bill(amount=6000.00 + salt, txn_date=TODAY - timedelta(days=6),
                      vendor=vendor_b, expense=office,
                      note=f"{TAG}-10 large first bill")
     add(10, "R021", "Bill", nb, "new vendor opens at $6,000")
@@ -424,8 +444,8 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     seeder.step("SEED-18 R027 near-duplicate vendor pair")
     # 18. R027 — two ACTIVE vendors with >= 0.7 trigram-similar names
-    twin_a = seeder.vendor("CAROLUS SEED HADLEY CONSTRUCTION")
-    twin_b = seeder.vendor("CAROLUS SEED HADLEY CONSTRUCTION LLC")
+    twin_a = seeder.vendor(f"{mint} HADLEY CONSTRUCTION")
+    twin_b = seeder.vendor(f"{mint} HADLEY CONSTRUCTION LLC")
     add(18, "R027", "Vendor", twin_a, "near-duplicate vendor names",
         target="entity", target_kind="vendor", target_qbo_id=twin_a,
         alt_qbo_id=twin_b)
@@ -452,7 +472,7 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     seeder.step("SEED-21 R035 cost-active unbilled job")
     # 21. R035 — job burning $12k with no invoice in 30 days
-    unbilled_job = seeder.customer("CAROLUS SEED JOB UNBILLED",
+    unbilled_job = seeder.customer(f"{mint} JOB UNBILLED",
                                    parent_id=cust)
     seeder.bill(amount=12000.00, txn_date=TODAY - timedelta(days=10),
                 vendor=vendor_a, expense=cogs, job_customer=unbilled_job,
@@ -509,8 +529,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print("manifest stale, incomplete, or pre-v2 — reseeding")
 
+        nonce = secrets.token_hex(3)
         try:
-            items = seed_all(Seeder(qbo))
+            items = seed_all(Seeder(qbo), nonce)
         except SeedFailure as exc:
             print(f"\nSEED ABORTED — {exc}", file=sys.stderr)
             print("(no manifest written; objects created before this step"
@@ -520,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = {
         "realm": args.realm,
         "seeded_on": TODAY.isoformat(),
+        "nonce": nonce,
         "items": [asdict(item) for item in items],
     }
     MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
