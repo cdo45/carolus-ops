@@ -1,12 +1,12 @@
 """PHASE 2 GATE — runs against the LIVE QBO SANDBOX. NOT part of CI.
 
-Prereq: tests/seed_errors.py has planted the 15-violation manifest
+Prereq: tests/seed_errors.py has planted the 21-violation manifest
 (data/seed_manifest.json) in the same sandbox and the same calendar month.
 
 Checks:
-  (a) detection — full sync, engine run, then >= 14/15 manifest items must
-      carry an OPEN flag with the EXPECTED rule_code on the correct
-      canonical row
+  (a) detection — full sync, engine run, then >= (n-1)/n manifest items
+      must carry an OPEN flag with the EXPECTED rule_code on the correct
+      canonical row (n = manifest size; 21 under rules v2)
   (b) provenance — every open engine flag's source_ref resolves to an
       existing canonical row of its source_type (principle 2)
   (c) idempotency — a second engine run creates zero new open flags
@@ -41,40 +41,52 @@ _SOURCE_TABLES = {
     "account": "accounts",
     "entity": "entities",
     "job": "jobs",
+    "client": "clients",
 }
 
 
-def resolve_target(
+def resolve_targets(
     conn: psycopg.Connection, client_id: UUID, item: dict[str, Any]
-) -> UUID | None:
-    """Map a manifest item's sandbox qbo_id to its canonical row UUID."""
+) -> list[UUID]:
+    """Map a manifest item to its candidate canonical row UUIDs.
+
+    Usually one; pair rules (alt_qbo_id) yield two — a flag on either is
+    a hit; client-target rules resolve to the client row itself."""
     target = item["target"]
-    qbo_id = item["qbo_id"]
-    if target == "transaction":
-        row = conn.execute(
-            "SELECT id FROM transactions WHERE client_id = %s AND qbo_id = %s"
-            " AND txn_type = %s",
-            (client_id, qbo_id, item["entity_type"]),
-        ).fetchone()
-    elif target == "account":
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE client_id = %s AND qbo_id = %s",
-            (client_id, qbo_id),
-        ).fetchone()
-    elif target == "entity":
-        row = conn.execute(
-            "SELECT id FROM entities WHERE client_id = %s AND qbo_id = %s"
-            " AND kind = %s",
-            (client_id, qbo_id, item["target_kind"]),
-        ).fetchone()
-    elif target == "job":
-        row = conn.execute(
-            "SELECT id FROM jobs WHERE client_id = %s AND qbo_id = %s",
-            (client_id, qbo_id),
-        ).fetchone()
-    else:
-        row = None
-    return row[0] if row else None
+    if target == "client":
+        return [client_id]
+
+    def lookup(qbo_id: str) -> UUID | None:
+        if target == "transaction":
+            row = conn.execute(
+                "SELECT id FROM transactions WHERE client_id = %s"
+                " AND qbo_id = %s AND txn_type = %s",
+                (client_id, qbo_id, item["entity_type"]),
+            ).fetchone()
+        elif target == "account":
+            row = conn.execute(
+                "SELECT id FROM accounts WHERE client_id = %s AND qbo_id = %s",
+                (client_id, qbo_id),
+            ).fetchone()
+        elif target == "entity":
+            row = conn.execute(
+                "SELECT id FROM entities WHERE client_id = %s AND qbo_id = %s"
+                " AND kind = %s",
+                (client_id, qbo_id, item["target_kind"]),
+            ).fetchone()
+        elif target == "job":
+            row = conn.execute(
+                "SELECT id FROM jobs WHERE client_id = %s AND qbo_id = %s",
+                (client_id, qbo_id),
+            ).fetchone()
+        else:
+            row = None
+        return row[0] if row else None
+
+    candidates = [lookup(item["qbo_id"])]
+    if item.get("alt_qbo_id"):
+        candidates.append(lookup(item["alt_qbo_id"]))
+    return [candidate for candidate in candidates if candidate is not None]
 
 
 def check_provenance(conn: psycopg.Connection, client_id: UUID) -> list[str]:
@@ -145,10 +157,8 @@ def main(argv: list[str] | None = None) -> int:
         hits = 0
         print(f"\n  {'n':>3} {'rule':<6} {'hit':<5} target")
         for item in items:
-            target_uuid = resolve_target(conn, client_id, item)
-            flagged = False
-            if target_uuid is not None:
-                flagged = conn.execute(
+            flagged = any(
+                conn.execute(
                     """
                     SELECT 1 FROM flags
                     WHERE client_id = %s AND rule_code = %s
@@ -156,14 +166,18 @@ def main(argv: list[str] | None = None) -> int:
                     """,
                     (client_id, item["rule_code"], str(target_uuid)),
                 ).fetchone() is not None
+                for target_uuid in resolve_targets(conn, client_id, item)
+            )
             hits += flagged
             mark = "HIT" if flagged else "MISS"
             print(f"  {item['n']:>3} {item['rule_code']:<6} {mark:<5}"
                   f" {item['entity_type']} {item['qbo_id']}"
                   f" ({item['description']})")
-        detection_ok = hits >= 14
+        needed = len(items) - 1
+        detection_ok = hits >= needed
         print(f"\n  [{'PASS' if detection_ok else 'FAIL'}] detection:"
-              f" {hits}/{len(items)} manifest items flagged (need >= 14)")
+              f" {hits}/{len(items)} manifest items flagged"
+              f" (need >= {needed})")
 
         # (b) provenance
         problems = check_provenance(conn, client_id)

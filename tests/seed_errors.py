@@ -1,10 +1,10 @@
-"""Seed exactly 15 known violations into the QBO SANDBOX for the Phase 2 gate.
+"""Seed exactly 21 known violations into the QBO SANDBOX for the Phase 2 gate.
 
 Usage:
     uv run python -m tests.seed_errors --realm <sandbox_realm_id>
 
-Creates real sandbox transactions via the QBO API covering 15 distinct
-rule codes, prints a manifest (qbo_id -> expected rule_code), and writes
+Creates real sandbox transactions via the QBO API covering 21 distinct
+rule codes (rules v2 thresholds), prints a manifest, and writes
 it to data/seed_manifest.json (data/ is gitignored — sandbox ids never
 enter git). Every seeded transaction's PrivateNote is tagged
 'CAROLUS-SEED-<n>' so humans can find them in the QBO UI.
@@ -58,10 +58,11 @@ class SeedItem:
     n: int
     rule_code: str
     entity_type: str  # QBO entity of the manifest target's transaction
-    target: str  # transaction | account | entity | job
+    target: str  # transaction | account | entity | job | client
     target_kind: str | None  # for entity targets: vendor/customer
     qbo_id: str  # filled at creation
     description: str
+    alt_qbo_id: str | None = None  # pair rules (R027): hit on either
 
 
 def _q(name: str) -> str:
@@ -267,11 +268,12 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     def add(n: int, rule: str, entity_type: str, qbo_id: str, desc: str,
             target: str = "transaction", target_kind: str | None = None,
-            target_qbo_id: str | None = None) -> None:
+            target_qbo_id: str | None = None,
+            alt_qbo_id: str | None = None) -> None:
         items.append(SeedItem(
             n=n, rule_code=rule, entity_type=entity_type, target=target,
             target_kind=target_kind, qbo_id=target_qbo_id or qbo_id,
-            description=desc,
+            description=desc, alt_qbo_id=alt_qbo_id,
         ))
 
     seeder.step("SEED-1 R010 duplicate purchase pair")
@@ -340,11 +342,14 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
     add(8, "R017", "JournalEntry", wj, "JE dated Saturday")
 
     seeder.step("SEED-9 R020 vendor spend spike")
-    # 9. R020 — vendor spend spike: $100 history, $4,000 this month
-    seeder.purchase(amount=100.00, txn_date=months_ago_mid(TODAY, 3),
-                    bank=bank, expense=office, vendor=vendor_c,
-                    note=f"{TAG}-SUPPORT-9 trailing history")
-    spike = seeder.purchase(amount=4000.00, txn_date=TODAY.replace(day=min(TODAY.day, 6)),
+    # 9. R020 — v2: 3 months of $100 history, then $6,000 this month
+    for months_ago in (1, 2, 3):
+        seeder.purchase(amount=100.00,
+                        txn_date=months_ago_mid(TODAY, months_ago),
+                        bank=bank, expense=office, vendor=vendor_c,
+                        note=f"{TAG}-SUPPORT-9 trailing history"
+                             f" m-{months_ago}")
+    spike = seeder.purchase(amount=6000.00, txn_date=TODAY.replace(day=min(TODAY.day, 6)),
                             bank=bank, expense=office, vendor=vendor_c,
                             note=f"{TAG}-9 spend spike month")
     add(9, "R020", "Purchase", spike, "month spend 40x trailing avg",
@@ -374,29 +379,85 @@ def seed_all(seeder: Seeder) -> list[SeedItem]:
 
     seeder.step("SEED-13 R030 COGS without job")
     # 13. R030 — COGS without job
-    cg = seeder.purchase(amount=400.00, txn_date=TODAY - timedelta(days=2),
+    cg = seeder.purchase(amount=600.00, txn_date=TODAY - timedelta(days=2),
                          bank=bank, expense=cogs, vendor=vendor_a,
                          note=f"{TAG}-13 COGS without job")
-    add(13, "R030", "Purchase", cg, "untagged COGS $400")
+    add(13, "R030", "Purchase", cg, "untagged COGS $600 (v2 floor 500)")
 
     seeder.step("SEED-14 R032 job margin negative")
-    # 14. R032 — job underwater: billed $500, costs $2,000
+    # 14. R032 — underwater AND mature: billed $500, costs $2,000 dated
+    # 50 days back (>=45d first-cost age -> the critical path; Bills are
+    # R016-exempt so the backdating stays clean)
     seeder.invoice(amount=500.00, txn_date=TODAY - timedelta(days=9),
                    customer=job, item=service,
                    note=f"{TAG}-SUPPORT-14 small job billing")
-    seeder.bill(amount=2000.00, txn_date=TODAY - timedelta(days=7),
+    seeder.bill(amount=2000.00, txn_date=TODAY - timedelta(days=50),
                 vendor=vendor_a, expense=cogs, job_customer=job,
                 note=f"{TAG}-14 job cost overrun")
-    add(14, "R032", "Customer", job, "job margin -1500",
+    add(14, "R032", "Customer", job, "job margin -1500, critical grade",
         target="job", target_qbo_id=job)
 
     seeder.step("SEED-15 R033 unapplied payment")
-    # 15. R033 — unapplied customer payment, 35 days old
+    # 15. R033 — unapplied customer payment, 35 days old, >= $500 (v2)
     up = seeder.unapplied_payment(amount=1000.00,
                                   txn_date=TODAY - timedelta(days=35),
                                   customer=cust,
                                   note=f"{TAG}-15 unapplied payment")
     add(15, "R033", "Payment", up, "payment applied to nothing for 35d")
+
+    seeder.step("SEED-16 R025 stale receivable")
+    # 16. R025 — invoice 100 days old, unpaid (QBO Balance = full amount)
+    stale_inv = seeder.invoice(amount=1500.00,
+                               txn_date=TODAY - timedelta(days=100),
+                               customer=whale, item=service,
+                               note=f"{TAG}-16 stale receivable")
+    add(16, "R025", "Invoice", stale_inv, "open invoice aged 100d >= $1k")
+
+    seeder.step("SEED-17 R026 aged payable")
+    # 17. R026 — bill 70 days old, unpaid (Bills are R016-exempt)
+    aged_bill = seeder.bill(amount=1200.00,
+                            txn_date=TODAY - timedelta(days=70),
+                            vendor=vendor_b, expense=office,
+                            note=f"{TAG}-17 aged payable")
+    add(17, "R026", "Bill", aged_bill, "open bill aged 70d >= $1k")
+
+    seeder.step("SEED-18 R027 near-duplicate vendor pair")
+    # 18. R027 — two ACTIVE vendors with >= 0.7 trigram-similar names
+    twin_a = seeder.vendor("CAROLUS SEED HADLEY CONSTRUCTION")
+    twin_b = seeder.vendor("CAROLUS SEED HADLEY CONSTRUCTION LLC")
+    add(18, "R027", "Vendor", twin_a, "near-duplicate vendor names",
+        target="entity", target_kind="vendor", target_qbo_id=twin_a,
+        alt_qbo_id=twin_b)
+
+    seeder.step("SEED-19 R028 overdrawn bank account")
+    # 19. R028 — fresh bank account that only ever pays out
+    overdrawn = seeder.account("CAROLUS Seed Overdrawn Bank", "Bank")
+    seeder.purchase(amount=500.00, txn_date=TODAY - timedelta(days=3),
+                    bank=overdrawn, expense=office, vendor=vendor_a,
+                    note=f"{TAG}-SUPPORT-19 overdraft spend")
+    add(19, "R028", "Account", overdrawn, "bank book balance -500",
+        target="account", target_qbo_id=overdrawn)
+
+    seeder.step("SEED-20 R034 untagged COGS cluster")
+    # 20. R034 — $5,600 of COGS this month, all untagged (also trips R030
+    # per line >= $500 — expected collateral)
+    for n, amount in enumerate((2000.00, 2000.00, 1600.00), start=1):
+        seeder.purchase(amount=amount,
+                        txn_date=TODAY.replace(day=min(TODAY.day, 4)),
+                        bank=bank, expense=cogs, vendor=vendor_a,
+                        note=f"{TAG}-SUPPORT-20-{n} untagged COGS cluster")
+    add(20, "R034", "Customer", "", "untagged COGS ratio 100% of $5.6k",
+        target="client", target_qbo_id="(client)")
+
+    seeder.step("SEED-21 R035 cost-active unbilled job")
+    # 21. R035 — job burning $12k with no invoice in 30 days
+    unbilled_job = seeder.customer("CAROLUS SEED JOB UNBILLED",
+                                   parent_id=cust)
+    seeder.bill(amount=12000.00, txn_date=TODAY - timedelta(days=10),
+                vendor=vendor_a, expense=cogs, job_customer=unbilled_job,
+                note=f"{TAG}-21 unbilled job costs")
+    add(21, "R035", "Customer", unbilled_job, "cost-active job, zero"
+        " invoices in 30d", target="job", target_qbo_id=unbilled_job)
 
     return items
 
@@ -464,6 +525,13 @@ def main(argv: list[str] | None = None) -> int:
     _print_manifest(manifest)
     print("\nNOTE: R020's window is the current calendar month — run the"
           " gate this month.")
+    print("NOT API-SEEDABLE (unit-test covered instead):")
+    print("  R018 — needs a green-closed period plus a post-close edit;"
+          " close_runs is internal state (tests/test_rules_audit_new.py)")
+    print("  R022 — QBO rejects BillPayments with no linked Bill"
+          " (tests/test_rules_vendor.py)")
+    print("  R031 — job completion status/date are curated canonical"
+          " columns, not API fields (tests/test_rules_construction.py)")
     return 0
 
 

@@ -182,8 +182,8 @@ def test_seed_all_emits_only_valid_shapes(seeder: Seeder) -> None:
     """Every payload the full seeding flow sends, checked in one sweep."""
     items = seed_all(seeder)
 
-    assert len(items) == 15
-    assert len({item.rule_code for item in items}) == 15
+    assert len(items) == 21
+    assert len({item.rule_code for item in items}) == 21
 
     txn_payloads = [
         (entity, payload)
