@@ -97,6 +97,13 @@ Statements are synthesized FROM canonical transactions (reportlab), so a
 clean statement must reconcile against the books it came from. Must print
 `GATE: PASS (5/5)` before Phase 5 work starts.
 
+## Rules engine v2
+
+Calibrated per controller audit on 2026-06-11: mapping completion (sales
+tax, JE/Deposit job tags, re-transform repair), threshold recalibration
+of R010–R033, and seven new rules (R018, R025–R028, R034, R035). Catalog
+and rationale: docs/RULES.md.
+
 ## Sequence notes
 
 - P0–P5 build the machine; P6 makes it client-visible; P7 proves the whole

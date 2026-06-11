@@ -51,8 +51,8 @@ upsert in place instead of delete+reinsert.
 
 | Type | Debit | Credit |
 |---|---|---|
-| Invoice | A/R for `TotalAmt` (also discount lines) | income account per sales line (via Item) |
-| CreditMemo | income per sales line (reversal) | A/R for `TotalAmt` |
+| Invoice | A/R for `TotalAmt` (also discount lines) | income account per sales line (via Item); sales tax to GlobalTaxPayable |
+| CreditMemo | income per sales line (reversal); sales tax to GlobalTaxPayable | A/R for `TotalAmt` |
 | Bill | expense account per line | A/P for `TotalAmt` |
 | VendorCredit | A/P for `TotalAmt` | expense account per line (reversal) |
 | Payment | `DepositToAccountRef`, else Undeposited Funds | A/R |
