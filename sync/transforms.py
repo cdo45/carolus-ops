@@ -165,6 +165,11 @@ class Resolver:
     def undeposited_funds_id(self) -> UUID | None:
         return self._single_account(acct_subtype="UndepositedFunds")
 
+    @property
+    def tax_payable_id(self) -> UUID | None:
+        """The single sales-tax liability account, or None (never guess)."""
+        return self._single_account(acct_subtype="GlobalTaxPayable")
+
     def item_income_account(self, item_qbo_id: str | None) -> UUID | None:
         if item_qbo_id is None or item_qbo_id not in self.items:
             return None
@@ -215,6 +220,17 @@ def _header_job(payload: Payload, r: Resolver) -> UUID | None:
     return r.jobs.get(_ref_value(payload.get("CustomerRef")) or "")
 
 
+def _line_job(detail: Payload, r: Resolver) -> UUID | None:
+    """Line-level job from CustomerRef (bill/purchase shape) or Entity
+    (JournalEntryLineDetail: {Type, EntityRef}; DepositLineDetail: ref)."""
+    ref = _ref_value(detail.get("CustomerRef"))
+    if ref is None:
+        entity = detail.get("Entity")
+        if isinstance(entity, Mapping):
+            ref = _ref_value(entity.get("EntityRef")) or _ref_value(entity)
+    return r.jobs.get(ref or "")
+
+
 def _expense_lines(payload: Payload, r: Resolver, posting: str) -> BuildResult:
     """AccountBased / ItemBased expense lines (Bill, Purchase, VendorCredit)."""
     lines: list[RawLine] = []
@@ -238,9 +254,9 @@ def _expense_lines(payload: Payload, r: Resolver, posting: str) -> BuildResult:
             continue  # subtotal / description-only lines carry no posting
         if amount == 0:
             continue
-        job = r.jobs.get(_ref_value(detail.get("CustomerRef")) or "")
         lines.append(
-            RawLine(account, amount, posting, job, line.get("Description"))
+            RawLine(account, amount, posting, _line_job(detail, r),
+                    line.get("Description"))
         )
     return lines, warns
 
@@ -270,9 +286,19 @@ def _sales_lines(payload: Payload, r: Resolver, posting: str) -> BuildResult:
                 warns.append("discount line without resolvable account")
                 continue
             lines.append(RawLine(account, amount, contra, job, "discount"))
+    # sales tax: same posting side as the sales lines (Invoice credit /
+    # CreditMemo debit), into the single GlobalTaxPayable account. Zero or
+    # multiple candidate accounts -> warn, never guess. Appended after the
+    # item lines, so its line_no is stable across re-transforms.
     tax = _dec((payload.get("TxnTaxDetail") or {}).get("TotalTax", 0))
     if tax != 0:
-        warns.append(f"sales tax {tax} not mapped in P1")
+        tax_account = r.tax_payable_id
+        if tax_account is None:
+            warns.append(
+                f"sales tax {tax}: no single GlobalTaxPayable account"
+            )
+        else:
+            lines.append(RawLine(tax_account, tax, posting, job, "sales tax"))
     return lines, warns
 
 
@@ -419,13 +445,13 @@ def _lines_deposit(payload: Payload, r: Resolver) -> BuildResult:
         amount = _dec(line.get("Amount"))
         if amount == 0:
             continue
-        account = r.account_id(
-            _ref_value(line["DepositLineDetail"].get("AccountRef"))
-        )
+        detail = line["DepositLineDetail"]
+        account = r.account_id(_ref_value(detail.get("AccountRef")))
         if account is None:
             warns.append("deposit line: unresolvable AccountRef")
             continue
-        lines.append(RawLine(account, amount, "credit", None, line.get("Description")))
+        lines.append(RawLine(account, amount, "credit", _line_job(detail, r),
+                             line.get("Description")))
     return lines, warns
 
 
@@ -448,7 +474,8 @@ def _lines_journal_entry(payload: Payload, r: Resolver) -> BuildResult:
         if posting not in ("debit", "credit"):
             warns.append(f"journal line: bad PostingType {detail.get('PostingType')!r}")
             continue
-        lines.append(RawLine(account, amount, posting, None, line.get("Description")))
+        lines.append(RawLine(account, amount, posting, _line_job(detail, r),
+                             line.get("Description")))
     return lines, warns
 
 
@@ -556,10 +583,11 @@ def transaction_amount(txn_type: str, payload: Payload) -> Decimal:
 class TransformResult:
     written: dict[str, int]
     flags_created: int
+    repaired: int = 0  # transform_warnings auto-resolved by a clean rebuild
 
     @property
     def total_written(self) -> int:
-        return sum(self.written.values()) + self.flags_created
+        return sum(self.written.values()) + self.flags_created + self.repaired
 
 
 def latest_staged(
@@ -795,6 +823,29 @@ def _flag_once(
     return cur.rowcount
 
 
+def _repair_transform_warning(
+    conn: psycopg.Connection, client_id: UUID, source_ref: str
+) -> int:
+    """A re-transform that rebuilt this transaction CLEAN resolves its open
+    transform_warning — the staging data healed it (e.g. the missing tax
+    account arrived); no human action needed."""
+    cur = conn.execute(
+        """
+        UPDATE flags
+        SET status = 'resolved', resolved_at = now(), resolution_note = %s
+        WHERE client_id = %s AND rule_code = %s AND source_ref = %s
+          AND status = 'open'
+        """,
+        (
+            f"repaired by re-transform on {date.today().isoformat()}",
+            client_id,
+            TRANSFORM_WARNING,
+            source_ref,
+        ),
+    )
+    return cur.rowcount
+
+
 def _build_resolver(conn: psycopg.Connection, client_id: UUID,
                     staged_items: Mapping[str, Payload]) -> Resolver:
     resolver = Resolver()
@@ -829,6 +880,7 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
     staged = latest_staged(conn, client_id, ALL_ENTITIES)
     written: dict[str, int] = defaultdict(int)
     flags_created = 0
+    repaired = 0
 
     for payload in staged.get("Account", {}).values():
         if _is_deleted(payload):
@@ -873,14 +925,19 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
             written["transactions"] += txn_written
             lines, warns = build_journal_lines(txn_type, payload, resolver)
             written["journal_lines"] += _upsert_lines(conn, txn_id, lines)
+            source_ref = f"qbo:{txn_type}:{qbo_id}"
             if warns:
                 flags_created += _flag_once(
                     conn,
                     client_id,
                     TRANSFORM_WARNING,
                     "transaction",
-                    f"qbo:{txn_type}:{qbo_id}",
+                    source_ref,
                     "; ".join(warns),
                 )
+            else:
+                repaired += _repair_transform_warning(conn, client_id,
+                                                      source_ref)
     conn.commit()
-    return TransformResult(written=dict(written), flags_created=flags_created)
+    return TransformResult(written=dict(written), flags_created=flags_created,
+                           repaired=repaired)

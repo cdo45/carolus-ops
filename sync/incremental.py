@@ -233,6 +233,7 @@ def run_incremental_sync(
             "deletions": deleted,
             "written": result.written,
             "flags_created": result.flags_created,
+            "repaired": result.repaired,
             "next_cursor": next_cursor.isoformat(),
         }
         # cursor advances ONLY here, after every step above succeeded

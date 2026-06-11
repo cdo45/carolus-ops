@@ -83,6 +83,7 @@ def run_full_sync(
             "fetched": fetched,
             "written": result.written,
             "flags_created": result.flags_created,
+            "repaired": result.repaired,
         }
         conn.execute(
             "UPDATE sync_connections SET last_full_sync = now() WHERE client_id = %s",

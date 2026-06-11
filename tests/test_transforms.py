@@ -26,23 +26,29 @@ INCOME = uuid4()
 MATERIALS = uuid4()
 OFFICE = uuid4()
 CARD = uuid4()
+TAXPAY = uuid4()
 CUSTOMER = uuid4()
 VENDOR = uuid4()
 JOB = uuid4()
 
 
-def resolver() -> Resolver:
+def resolver(*, with_tax_account: bool = True) -> Resolver:
+    accounts = {
+        "1": AccountInfo(BANK, "Bank", "Checking"),
+        "2": AccountInfo(UNDEPOSITED, "Other Current Asset", "UndepositedFunds"),
+        "20": AccountInfo(AR, "Accounts Receivable", None),
+        "21": AccountInfo(AP, "Accounts Payable", None),
+        "30": AccountInfo(INCOME, "Income", None),
+        "40": AccountInfo(MATERIALS, "Cost of Goods Sold", None),
+        "41": AccountInfo(OFFICE, "Expense", None),
+        "50": AccountInfo(CARD, "Credit Card", "CreditCard"),
+    }
+    if with_tax_account:
+        accounts["70"] = AccountInfo(
+            TAXPAY, "Other Current Liability", "GlobalTaxPayable"
+        )
     return Resolver(
-        accounts={
-            "1": AccountInfo(BANK, "Bank", "Checking"),
-            "2": AccountInfo(UNDEPOSITED, "Other Current Asset", "UndepositedFunds"),
-            "20": AccountInfo(AR, "Accounts Receivable", None),
-            "21": AccountInfo(AP, "Accounts Payable", None),
-            "30": AccountInfo(INCOME, "Income", None),
-            "40": AccountInfo(MATERIALS, "Cost of Goods Sold", None),
-            "41": AccountInfo(OFFICE, "Expense", None),
-            "50": AccountInfo(CARD, "Credit Card", "CreditCard"),
-        },
+        accounts=accounts,
         items={
             "100": ItemAccounts("30", None),
             "101": ItemAccounts("30", "40"),
@@ -233,16 +239,73 @@ def test_unknown_txn_type_warns() -> None:
     assert any("no journal-line mapping" in w for w in warns)
 
 
-def test_sales_tax_is_warned_not_dropped_silently() -> None:
-    payload = {
-        "Id": "1003", "TotalAmt": 108.00, "CustomerRef": {"value": "200"},
-        "TxnTaxDetail": {"TotalTax": 8.00},
-        "Line": [{"Amount": 100.00, "SalesItemLineDetail": {
-            "ItemRef": {"value": "100"}}}],
-    }
-    lines, warns = build_journal_lines("Invoice", payload, resolver())
-    assert any("sales tax" in w for w in warns)
+TAXED_INVOICE = {
+    "Id": "1003", "TotalAmt": 108.00, "CustomerRef": {"value": "201"},
+    "TxnTaxDetail": {"TotalTax": 8.00},
+    "Line": [{"Amount": 100.00, "SalesItemLineDetail": {
+        "ItemRef": {"value": "100"}}}],
+}
+
+
+def test_taxed_invoice_balances_into_tax_payable() -> None:
+    lines, warns = build_journal_lines("Invoice", TAXED_INVOICE, resolver())
+    assert warns == []
+    debits, credits = by_side(lines)
+    assert debits == {AR: Decimal("108.00")}
+    assert credits == {INCOME: Decimal("100.00"), TAXPAY: Decimal("8.00")}
+    tax_line = next(line for line in lines if line.account_id == TAXPAY)
+    assert tax_line.line_no == 2, "tax line appended last — stable line_no"
+    assert tax_line.job_id == JOB, "tax inherits the header job tag"
+
+
+def test_taxed_credit_memo_reverses_directions() -> None:
+    payload = dict(TAXED_INVOICE, Id="8002")
+    lines, warns = build_journal_lines("CreditMemo", payload, resolver())
+    assert warns == []
+    debits, credits = by_side(lines)
+    assert credits == {AR: Decimal("108.00")}
+    assert debits == {INCOME: Decimal("100.00"), TAXPAY: Decimal("8.00")}
+
+
+def test_missing_tax_account_warns_never_guesses() -> None:
+    lines, warns = build_journal_lines(
+        "Invoice", TAXED_INVOICE, resolver(with_tax_account=False)
+    )
+    assert any("GlobalTaxPayable" in w for w in warns)
     assert any("unbalanced" in w for w in warns)
+    debits, credits = by_side(lines)
+    assert TAXPAY not in credits and TAXPAY not in debits
+
+
+def test_journal_entry_line_entity_lands_job() -> None:
+    payload = {
+        "Id": "6003",
+        "Line": [
+            {"Amount": 250.00, "JournalEntryLineDetail": {
+                "PostingType": "Debit", "AccountRef": {"value": "40"},
+                "Entity": {"Type": "Customer", "EntityRef": {"value": "201"}}}},
+            {"Amount": 250.00, "JournalEntryLineDetail": {
+                "PostingType": "Credit", "AccountRef": {"value": "1"}}},
+        ],
+    }
+    lines, warns = build_journal_lines("JournalEntry", payload, resolver())
+    assert warns == []
+    tagged = next(line for line in lines if line.account_id == MATERIALS)
+    untagged = next(line for line in lines if line.account_id == BANK)
+    assert tagged.job_id == JOB and untagged.job_id is None
+
+
+def test_deposit_line_entity_lands_job() -> None:
+    payload = {
+        "Id": "7002", "TotalAmt": 600.00,
+        "DepositToAccountRef": {"value": "1"},
+        "Line": [{"Amount": 600.00, "DepositLineDetail": {
+            "AccountRef": {"value": "30"}, "Entity": {"value": "201"}}}],
+    }
+    lines, warns = build_journal_lines("Deposit", payload, resolver())
+    assert warns == []
+    income_line = next(line for line in lines if line.account_id == INCOME)
+    assert income_line.job_id == JOB
 
 
 def test_header_entity_resolution() -> None:

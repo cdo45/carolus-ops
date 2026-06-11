@@ -67,11 +67,32 @@ staged Item's expense/income account. A/R / A/P fall back from explicit
 `ARAccountRef`/`APAccountRef` to the client's single account of type
 "Accounts Receivable"/"Accounts Payable" (ambiguity → warning, see below).
 
+## Sales tax
+
+`TxnTaxDetail.TotalTax` maps to the client's single
+`acct_subtype='GlobalTaxPayable'` account: credited on Invoices, debited
+on CreditMemos (reversal), appended after the item lines so its line_no
+is stable. Zero or multiple candidate accounts → transform_warning,
+never guessed.
+
+## Line-level job tags (all shapes)
+
+`AccountBasedExpenseLineDetail`/`ItemBasedExpenseLineDetail` via
+`CustomerRef`; `JournalEntryLineDetail` via `Entity.EntityRef`;
+`DepositLineDetail` via `Entity` — all resolve through the same jobs
+lookup. Header-customer inheritance for Invoices/CreditMemos unchanged.
+
+## Repair path
+
+`uv run python -m sync.retransform --realm <id>` rebuilds canonical from
+staging with no QBO calls. A transaction that now builds clean
+auto-resolves its open transform_warning
+(`repaired by re-transform on <date>`).
+
 ## Known gaps (flagged, not silent)
 
-- Sales tax (`TxnTaxDetail`) is not mapped in P1 — invoices with tax come
-  out unbalanced and are flagged.
-- Job attribution inside JournalEntry/Deposit lines is not mapped in P1.
+- (none currently — previous gaps for sales tax and JE/Deposit job tags
+  closed by the mapping-completion pass)
 
 ## Warnings / never silently wrong
 
