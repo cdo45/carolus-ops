@@ -9,6 +9,7 @@ dependencies = [
     "pydantic",
     "python-dotenv",
     "cryptography",
+    "pypdf",
 ]
 
 [dependency-groups]
