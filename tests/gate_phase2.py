@@ -105,10 +105,18 @@ def check_provenance(conn: psycopg.Connection, client_id: UUID) -> list[str]:
         if table is None:
             problems.append(f"{rule_code}: unknown source_type {source_type!r}")
             continue
-        exists = conn.execute(  # noqa: S608 - table from fixed mapping above
-            f"SELECT 1 FROM {table} WHERE id = %s::uuid AND client_id = %s",
-            (source_ref, client_id),
-        ).fetchone()
+        if table == "clients":
+            # clients has no client_id column: the row IS the client, so a
+            # valid client-scoped ref must equal the client itself
+            exists = conn.execute(
+                "SELECT 1 FROM clients WHERE id = %s::uuid AND id = %s",
+                (source_ref, client_id),
+            ).fetchone()
+        else:
+            exists = conn.execute(  # noqa: S608 - table from fixed mapping
+                f"SELECT 1 FROM {table} WHERE id = %s::uuid AND client_id = %s",
+                (source_ref, client_id),
+            ).fetchone()
         if exists is None:
             problems.append(
                 f"{rule_code}: source_ref {source_ref} not found in {table}"
