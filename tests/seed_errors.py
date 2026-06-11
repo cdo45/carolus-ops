@@ -40,6 +40,7 @@ from sync.qbo_client import QboClient, QboRequestError  # noqa: E402
 
 MANIFEST_PATH = Path(__file__).resolve().parent.parent / "data" / "seed_manifest.json"
 TAG = "CAROLUS-SEED"
+EXPECTED_SEEDS = 21  # manifest size under rules v2 — fewer means reseed
 
 TODAY = date.today()
 
@@ -500,11 +501,13 @@ def main(argv: list[str] | None = None) -> int:
 
         if MANIFEST_PATH.exists():
             manifest = json.loads(MANIFEST_PATH.read_text())
-            if manifest.get("realm") == args.realm and verify_existing(qbo, manifest):
+            if (manifest.get("realm") == args.realm
+                    and len(manifest.get("items", [])) == EXPECTED_SEEDS
+                    and verify_existing(qbo, manifest)):
                 print(f"already seeded — manifest intact at {MANIFEST_PATH}")
                 _print_manifest(manifest)
                 return 0
-            print("manifest stale or incomplete — reseeding")
+            print("manifest stale, incomplete, or pre-v2 — reseeding")
 
         try:
             items = seed_all(Seeder(qbo))
