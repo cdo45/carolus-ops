@@ -51,6 +51,13 @@ their own lifecycle and are not touched by the engine.
 | transform_warning | warn | sync/transforms.py — unmappable/unbalanced payload content |
 | qbo_deleted | warn | sync/incremental.py — entity deleted in QBO, canonical row soft-flagged |
 
+## Docpipe-owned flags (emitted by the bank rec verifier)
+
+| Code | Severity | What it catches | Why it matters |
+|---|---|---|---|
+| R040 | critical | Statement lines with no matching QBO transaction (unrecorded bank activity) | Money moved that the books don't know about — THE bank-side fraud/error catch; one flag per line, fuzzy date candidates annotated |
+| R041 | warn | QBO bank activity absent from the statement and > 30 days old at period end | Stale uncleared checks and phantom entries inflating the book balance |
+
 ## Known scope notes
 
 - R031 relies on curated `jobs.status` ('completed'/'closed' set by

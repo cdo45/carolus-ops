@@ -10,12 +10,12 @@ Evaluates, for a client and calendar month:
                            net to zero as of period end
   no_stale_uncategorized   no Uncategorized* lines older than 14 days at
                            period end (same logic as R015)
-  documents_reviewed       STUB until Phase 4: always 'not_evaluated' —
-                           explicitly marked, never silently passing
+  documents_reviewed       per bank account: tied rec_runs covering the
+                           period -> pass; untied rec -> fail; no rec ->
+                           not_evaluated (never silently passing)
 
 Overall: red if anything failed; incomplete if nothing failed but
-something is not_evaluated (true until Phase 4 ships); green only when
-every condition passes. Storage: close_runs table, one row per
+something is not_evaluated; green only when every condition passes. Storage: close_runs table, one row per
 (client, period), change-guarded upsert — re-evaluating unchanged books
 writes zero rows and keeps the original evaluated_at (see migration 0006
 for why close_runs and not kpi_values).
@@ -135,7 +135,12 @@ def _no_stale_uncategorized(
 def _documents_reviewed(
     conn: psycopg.Connection, client_id: UUID, period_start: date, period_end: date
 ) -> Condition:
-    rows = conn.execute(
+    """Per bank account: a TIED rec covering this period passes it; an
+    untied rec fails it; no rec leaves it not_evaluated. Accounts without
+    a rec never silently pass — the close stays incomplete (the receipt/
+    invoice side of documentation remains Phase 4+ work-in-progress and
+    is reported in doc_status_counts for visibility)."""
+    doc_counts = conn.execute(
         """
         SELECT doc_status, count(*) FROM transactions
         WHERE client_id = %s AND txn_date BETWEEN %s AND %s
@@ -144,15 +149,43 @@ def _documents_reviewed(
         """,
         (client_id, period_start, period_end),
     ).fetchall()
+    accounts = conn.execute(
+        """
+        SELECT a.id, a.name, bool_or(r.tied) AS any_tied,
+               count(r.id) AS rec_count
+        FROM accounts a
+        LEFT JOIN rec_runs r
+          ON r.account_id = a.id AND r.client_id = a.client_id
+         AND r.period_end BETWEEN %s AND %s
+        WHERE a.client_id = %s AND a.acct_type = 'Bank'
+          AND a.active AND a.qbo_deleted_at IS NULL
+        GROUP BY a.id ORDER BY a.name, a.id
+        """,
+        (period_start, period_end, client_id),
+    ).fetchall()
+
+    per_account: dict[str, str] = {}
+    for _account_id, name, any_tied, rec_count in accounts:
+        if rec_count == 0:
+            per_account[name] = NOT_EVALUATED
+        elif any_tied:
+            per_account[name] = PASS
+        else:
+            per_account[name] = FAIL
+
+    states = set(per_account.values())
+    if FAIL in states:
+        state = FAIL
+    elif NOT_EVALUATED in states or not per_account:
+        state = NOT_EVALUATED
+    else:
+        state = PASS
     return Condition(
         name="documents_reviewed",
-        state=NOT_EVALUATED,
+        state=state,
         detail={
-            "note": (
-                "document pipeline is Phase 4 — condition is explicitly"
-                " not evaluated, never silently passing"
-            ),
-            "doc_status_counts": {status: count for status, count in rows},
+            "bank_recs": per_account,
+            "doc_status_counts": {status: count for status, count in doc_counts},
         },
     )
 

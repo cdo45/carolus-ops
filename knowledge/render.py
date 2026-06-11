@@ -48,12 +48,14 @@ assert tuple(SECTION_TITLES) == CATEGORIES
 SEVERITY_ORDER: tuple[str, ...] = ("critical", "warn", "info")
 RESOLVED_WINDOW_DAYS: int = 30
 
-# rule_code -> human title; sync-owned codes get fixed titles
+# rule_code -> human title; sync- and docpipe-owned codes get fixed titles
 _FLAG_TITLES: dict[str, str] = {
     rule.rule_code: rule.title for rule in registry.ALL_RULES
 } | {
     "transform_warning": "Transform warning",
     "qbo_deleted": "Deleted in QBO",
+    "R040": "Unrecorded bank activity",
+    "R041": "Uncleared transaction aging",
 }
 
 
