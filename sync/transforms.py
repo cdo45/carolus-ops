@@ -120,6 +120,7 @@ class AccountInfo:
     id: UUID
     acct_type: str | None
     acct_subtype: str | None
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ class Resolver:
     items: dict[str, ItemAccounts] = field(default_factory=dict)
     entities: dict[tuple[str, str], UUID] = field(default_factory=dict)
     jobs: dict[str, UUID] = field(default_factory=dict)
+    curated_tax_account_id: UUID | None = None  # clients.sales_tax_account_id
 
     def account_id(self, qbo_id: str | None) -> UUID | None:
         if qbo_id is None:
@@ -166,8 +168,21 @@ class Resolver:
         return self._single_account(acct_subtype="UndepositedFunds")
 
     @property
+    def tax_payable_candidates(self) -> list[tuple[str, str]]:
+        """All (qbo_id, name) GlobalTaxPayable accounts, stable order."""
+        return sorted(
+            (qbo_id, info.name or "(unnamed)")
+            for qbo_id, info in self.accounts.items()
+            if info.acct_subtype == "GlobalTaxPayable"
+        )
+
+    @property
     def tax_payable_id(self) -> UUID | None:
-        """The single sales-tax liability account, or None (never guess)."""
+        """Sales-tax liability resolution order: (1) the client's CURATED
+        account (clients.sales_tax_account_id), (2) the single
+        GlobalTaxPayable candidate, (3) None — never guess between many."""
+        if self.curated_tax_account_id is not None:
+            return self.curated_tax_account_id
         return self._single_account(acct_subtype="GlobalTaxPayable")
 
     def item_income_account(self, item_qbo_id: str | None) -> UUID | None:
@@ -294,9 +309,20 @@ def _sales_lines(payload: Payload, r: Resolver, posting: str) -> BuildResult:
     if tax != 0:
         tax_account = r.tax_payable_id
         if tax_account is None:
-            warns.append(
-                f"sales tax {tax}: no single GlobalTaxPayable account"
-            )
+            candidates = r.tax_payable_candidates
+            if candidates:
+                listed = ", ".join(f"{name} [qbo {qbo_id}]"
+                                   for qbo_id, name in candidates)
+                warns.append(
+                    f"sales tax {tax}: {len(candidates)} GlobalTaxPayable"
+                    f" candidates ({listed}) — pick one with"
+                    " `python -m sync.set_tax_account`"
+                )
+            else:
+                warns.append(
+                    f"sales tax {tax}: no GlobalTaxPayable account in the"
+                    " chart of accounts"
+                )
         else:
             lines.append(RawLine(tax_account, tax, posting, job, "sales tax"))
     return lines, warns
@@ -579,11 +605,33 @@ def transaction_amount(txn_type: str, payload: Payload) -> Decimal:
 # ---------------------------------------------------------------- persistence
 
 
+# warning text -> stable reason code (first match wins) so retained
+# warnings explain themselves in run summaries
+_WARN_REASONS: tuple[tuple[str, str], ...] = (
+    ("GlobalTaxPayable", "tax_account_unresolved"),
+    ("no income account", "item_income_unresolved"),
+    ("no expense account for item", "item_expense_unresolved"),
+    ("Accounts Receivable", "ar_unresolved"),
+    ("Accounts Payable", "ap_unresolved"),
+    ("PayType", "billpayment_paytype"),
+    ("unresolvable", "account_unresolved"),
+    ("unbalanced", "unbalanced"),
+)
+
+
+def _warn_reason(warn: str) -> str:
+    for needle, reason in _WARN_REASONS:
+        if needle in warn:
+            return reason
+    return "other"
+
+
 @dataclass
 class TransformResult:
     written: dict[str, int]
     flags_created: int
     repaired: int = 0  # transform_warnings auto-resolved by a clean rebuild
+    warnings_retained: dict[str, int] = field(default_factory=dict)
 
     @property
     def total_written(self) -> int:
@@ -849,11 +897,17 @@ def _repair_transform_warning(
 def _build_resolver(conn: psycopg.Connection, client_id: UUID,
                     staged_items: Mapping[str, Payload]) -> Resolver:
     resolver = Resolver()
-    for qbo_id, acct_type, acct_subtype, account_id in conn.execute(
-        "SELECT qbo_id, acct_type, acct_subtype, id FROM accounts WHERE client_id = %s",
+    curated = conn.execute(
+        "SELECT sales_tax_account_id FROM clients WHERE id = %s", (client_id,)
+    ).fetchone()
+    resolver.curated_tax_account_id = curated[0] if curated else None
+    for qbo_id, acct_type, acct_subtype, name, account_id in conn.execute(
+        "SELECT qbo_id, acct_type, acct_subtype, name, id FROM accounts"
+        " WHERE client_id = %s",
         (client_id,),
     ).fetchall():
-        resolver.accounts[qbo_id] = AccountInfo(account_id, acct_type, acct_subtype)
+        resolver.accounts[qbo_id] = AccountInfo(account_id, acct_type,
+                                                acct_subtype, name)
     for qbo_id, kind, entity_id in conn.execute(
         "SELECT qbo_id, kind, id FROM entities WHERE client_id = %s", (client_id,)
     ).fetchall():
@@ -881,6 +935,7 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
     written: dict[str, int] = defaultdict(int)
     flags_created = 0
     repaired = 0
+    warnings_retained: dict[str, int] = defaultdict(int)
 
     for payload in staged.get("Account", {}).values():
         if _is_deleted(payload):
@@ -927,6 +982,8 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
             written["journal_lines"] += _upsert_lines(conn, txn_id, lines)
             source_ref = f"qbo:{txn_type}:{qbo_id}"
             if warns:
+                for warn in warns:
+                    warnings_retained[_warn_reason(warn)] += 1
                 flags_created += _flag_once(
                     conn,
                     client_id,
@@ -940,4 +997,5 @@ def transform_client(conn: psycopg.Connection, client_id: UUID) -> TransformResu
                                                       source_ref)
     conn.commit()
     return TransformResult(written=dict(written), flags_created=flags_created,
-                           repaired=repaired)
+                           repaired=repaired,
+                           warnings_retained=dict(warnings_retained))

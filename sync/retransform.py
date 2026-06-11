@@ -42,6 +42,8 @@ def run_retransform(conn: psycopg.Connection, client_id: UUID) -> dict[str, Any]
             "written": result.written,
             "flags_created": result.flags_created,
             "repaired": result.repaired,
+            # zero-repair runs explain themselves: what's still wrong & why
+            "warnings_retained": result.warnings_retained,
         }
         conn.execute(
             "UPDATE runs SET finished_at = now(), status = 'succeeded',"

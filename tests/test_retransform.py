@@ -106,6 +106,7 @@ def test_repair_is_idempotent(conn: psycopg.Connection) -> None:
         "written": {"accounts": 0, "transactions": 0, "journal_lines": 0},
         "flags_created": 0,
         "repaired": 0,
+        "warnings_retained": {},
     }, "re-running over unchanged staging writes and repairs nothing"
 
 
@@ -136,6 +137,73 @@ def test_repair_does_not_touch_manual_or_foreign_flags(
         (client_id,),
     ).fetchall()}
     assert statuses == {"qbo:Invoice:other": "open"}
+
+
+TAX_ACCOUNT_2 = {"Id": "71", "Name": "Board of Equalization",
+                 "AccountType": "Other Current Liability",
+                 "AccountSubType": "GlobalTaxPayable", "Active": True}
+
+
+def test_two_candidates_flag_lists_both_and_curation_repairs(
+    conn: psycopg.Connection,
+) -> None:
+    """The live Arizona/Board case end-to-end: ambiguous -> refuse with a
+    self-explaining flag and retained-reason breakdown -> curate via the
+    CLI helper -> retransform repairs."""
+    from sync.set_tax_account import list_candidates, set_account
+
+    client_id = make_client(conn)
+    stage(conn, client_id, "Account", [*ACCOUNTS, TAX_ACCOUNT, TAX_ACCOUNT_2])
+    stage(conn, client_id, "Item", [ITEM])
+    stage(conn, client_id, "Invoice", [TAXED_INVOICE])
+
+    first = transform_client(conn, client_id)
+
+    assert first.flags_created == 1
+    assert first.warnings_retained == {
+        "tax_account_unresolved": 1, "unbalanced": 1,
+    }, "a zero-repair run explains exactly what is still wrong"
+    detail = conn.execute(
+        "SELECT detail FROM flags WHERE client_id = %s AND status = 'open'",
+        (client_id,),
+    ).fetchone()
+    assert detail is not None
+    assert "Sales Tax Payable [qbo 70]" in detail[0]
+    assert "Board of Equalization [qbo 71]" in detail[0]
+    assert "set_tax_account" in detail[0], "the warning says what to do"
+
+    candidates = list_candidates(conn, client_id)
+    assert [(c[0], c[2]) for c in candidates] == [("70", False), ("71", False)]
+
+    name, subtype = set_account(conn, client_id, "71")
+    assert (name, subtype) == ("Board of Equalization", "GlobalTaxPayable")
+    assert [(c[0], c[2]) for c in list_candidates(conn, client_id)] == [
+        ("70", False), ("71", True),
+    ]
+
+    summary = run_retransform(conn, client_id)
+    assert summary["repaired"] == 1
+    assert summary["warnings_retained"] == {}
+    credited = conn.execute(
+        """
+        SELECT a.qbo_id FROM journal_lines jl
+        JOIN accounts a ON a.id = jl.account_id
+        JOIN transactions t ON t.id = jl.transaction_id
+        WHERE t.client_id = %s AND jl.description = 'sales tax'
+        """,
+        (client_id,),
+    ).fetchone()
+    assert credited == ("71",), "the CURATED account took the tax line"
+
+
+def test_set_account_rejects_unknown_qbo_id(conn: psycopg.Connection) -> None:
+    import pytest
+
+    from sync.set_tax_account import set_account
+
+    client_id = make_client(conn)
+    with pytest.raises(ValueError, match="no account with qbo_id"):
+        set_account(conn, client_id, "999")
 
 
 def test_full_sync_reports_repaired(conn: psycopg.Connection) -> None:

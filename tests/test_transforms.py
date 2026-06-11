@@ -27,12 +27,15 @@ MATERIALS = uuid4()
 OFFICE = uuid4()
 CARD = uuid4()
 TAXPAY = uuid4()
+TAXPAY2 = uuid4()
 CUSTOMER = uuid4()
 VENDOR = uuid4()
 JOB = uuid4()
 
 
-def resolver(*, with_tax_account: bool = True) -> Resolver:
+def resolver(*, with_tax_account: bool = True,
+             extra_tax_account: bool = False,
+             curated_tax: object = None) -> Resolver:
     accounts = {
         "1": AccountInfo(BANK, "Bank", "Checking"),
         "2": AccountInfo(UNDEPOSITED, "Other Current Asset", "UndepositedFunds"),
@@ -45,9 +48,16 @@ def resolver(*, with_tax_account: bool = True) -> Resolver:
     }
     if with_tax_account:
         accounts["70"] = AccountInfo(
-            TAXPAY, "Other Current Liability", "GlobalTaxPayable"
+            TAXPAY, "Other Current Liability", "GlobalTaxPayable",
+            "Arizona Dept of Revenue",
+        )
+    if extra_tax_account:
+        accounts["71"] = AccountInfo(
+            TAXPAY2, "Other Current Liability", "GlobalTaxPayable",
+            "Board of Equalization",
         )
     return Resolver(
+        curated_tax_account_id=curated_tax,  # type: ignore[arg-type]
         accounts=accounts,
         items={
             "100": ItemAccounts("30", None),
@@ -271,10 +281,35 @@ def test_missing_tax_account_warns_never_guesses() -> None:
     lines, warns = build_journal_lines(
         "Invoice", TAXED_INVOICE, resolver(with_tax_account=False)
     )
-    assert any("GlobalTaxPayable" in w for w in warns)
+    assert any("no GlobalTaxPayable account" in w for w in warns)
     assert any("unbalanced" in w for w in warns)
     debits, credits = by_side(lines)
     assert TAXPAY not in credits and TAXPAY not in debits
+
+
+def test_two_tax_candidates_warn_listing_both_never_guess() -> None:
+    """The Arizona/Board case: resolution refuses to pick, and the warning
+    is self-explanatory — it names every candidate."""
+    lines, warns = build_journal_lines(
+        "Invoice", TAXED_INVOICE, resolver(extra_tax_account=True)
+    )
+    (tax_warn,) = [w for w in warns if "GlobalTaxPayable" in w]
+    assert "2 GlobalTaxPayable candidates" in tax_warn
+    assert "Arizona Dept of Revenue [qbo 70]" in tax_warn
+    assert "Board of Equalization [qbo 71]" in tax_warn
+    assert "set_tax_account" in tax_warn
+    debits, credits = by_side(lines)
+    assert TAXPAY not in credits and TAXPAY2 not in credits
+
+
+def test_curated_tax_account_beats_ambiguity() -> None:
+    """Resolution order: the curated fk wins even with two candidates."""
+    r = resolver(extra_tax_account=True, curated_tax=TAXPAY2)
+    lines, warns = build_journal_lines("Invoice", TAXED_INVOICE, r)
+    assert warns == []
+    debits, credits = by_side(lines)
+    assert credits[TAXPAY2] == Decimal("8.00"), "curated account used"
+    assert TAXPAY not in credits
 
 
 def test_journal_entry_line_entity_lands_job() -> None:
