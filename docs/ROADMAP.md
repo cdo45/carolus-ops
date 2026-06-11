@@ -76,6 +76,27 @@ section. Must print `GATE: PASS (5/5)` before Phase 4 work starts.
 The same properties are CI-tested across tests/test_fact_store.py,
 test_validator.py, test_render.py, and test_extract.py.
 
+## GATE — Phase 4 (how to run it)
+
+No LLM calls. Two modes, identical checks (statement terminals exact with
+the corrupted balance escalating `checksum_failed` and parsing nothing;
+clean rec ties to the penny with the phantom line raising R040 on a
+resolvable source_ref; receipts hit exact terminal states with matched
+transactions backed; the request list carries the orphan receipt and
+known undocumented spend; duplicate re-ingest creates zero rows):
+
+```sh
+# live: against the sandbox-synced client in DATABASE_URL (sync first)
+uv run python -m tests.gate_phase4 --realm <realm_id> [--period YYYY-MM]
+
+# fixture: fully local, deterministic, destructive scratch-db run
+CAROLUS_TEST_DB=postgresql://... uv run python -m tests.gate_phase4 --fixture
+```
+
+Statements are synthesized FROM canonical transactions (reportlab), so a
+clean statement must reconcile against the books it came from. Must print
+`GATE: PASS (5/5)` before Phase 5 work starts.
+
 ## Sequence notes
 
 - P0–P5 build the machine; P6 makes it client-visible; P7 proves the whole

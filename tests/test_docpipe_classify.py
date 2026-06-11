@@ -76,6 +76,17 @@ def test_heuristics_abstain_on_ambiguity() -> None:
     assert result.confident is False and result.doc_type is None
 
 
+def test_no_text_layer_classifies_on_unambiguous_filename_alone() -> None:
+    """Scans have no text — a clear filename must still classify so the
+    document reaches extraction (where needs_ocr escalates precisely)."""
+    result = heuristic_classification("may-statement.pdf", "application/pdf",
+                                      None)
+    assert result.confident is True and result.doc_type == "bank_statement"
+    # but no text AND no filename signal stays unclassifiable
+    nothing = heuristic_classification("scan-0042.pdf", "application/pdf", None)
+    assert nothing.confident is False and nothing.doc_type is None
+
+
 def test_exit_one_deterministic(conn: psycopg.Connection, tmp_path: Path) -> None:
     document_id = make_doc(conn, tmp_path, "may-2026-statement.pdf")
 

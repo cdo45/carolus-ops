@@ -109,10 +109,16 @@ def heuristic_classification(
 
     ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     (top_type, top_score), (_, second_score) = ranked[0], ranked[1]
-    confident = (
-        top_score >= CONFIDENT_SCORE
-        and top_score - second_score >= CONFIDENT_MARGIN
-    )
+    if lowered_text.strip():
+        confident = (
+            top_score >= CONFIDENT_SCORE
+            and top_score - second_score >= CONFIDENT_MARGIN
+        )
+    else:
+        # no text layer (scan/photo): the filename is the only evidence —
+        # an unambiguous filename match classifies, so the document reaches
+        # extraction where 'needs_ocr' is the precise escalation
+        confident = top_score >= 3 and second_score == 0
     return ClassificationResult(
         doc_type=top_type if confident else None,
         confident=confident,
