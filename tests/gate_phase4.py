@@ -396,42 +396,83 @@ def live_context(
     if bank is None:
         raise SystemExit("no bank account with activity — sync first")
 
-    uniques = conn.execute(
+    # Clean-match targets must be unique UNDER THE MATCHER'S OWN CRITERIA
+    # (amount exact, date ±5d, vendor trigram narrowing, receipt candidate
+    # types) — amount-uniqueness alone is not enough: seeded duplicate
+    # twins and Bill/BillPayment same-amount pairs both produce legitimate
+    # ambiguity. Verify each target by querying with the matcher itself.
+    from docpipe.matching import _candidates
+
+    pool = conn.execute(
         """
-        SELECT min(t.txn_date), t.amount,
-               min(COALESCE(e.name, 'VENDOR')) AS vendor
+        SELECT t.id, t.txn_date, t.amount, COALESCE(e.name, 'VENDOR')
         FROM transactions t
         LEFT JOIN entities e ON e.id = t.entity_id
         WHERE t.client_id = %s AND t.txn_type IN ('Purchase', 'Bill')
-          AND t.txn_date BETWEEN %s AND %s AND t.qbo_deleted_at IS NULL
-        GROUP BY t.amount HAVING count(*) = 1
-        ORDER BY 2 DESC LIMIT 4
+          AND t.txn_date BETWEEN %s AND %s AND t.amount > 0
+          AND t.qbo_deleted_at IS NULL
+        ORDER BY t.amount DESC, t.txn_date, t.qbo_id
         """,
         (client_id, period_start, period_end),
     ).fetchall()
-    duplicated = conn.execute(
-        """
-        SELECT min(t.txn_date), t.amount
-        FROM transactions t
-        WHERE t.client_id = %s AND t.txn_type IN ('Purchase', 'Bill')
-          AND t.txn_date BETWEEN %s AND %s AND t.qbo_deleted_at IS NULL
-        GROUP BY t.amount HAVING count(*) > 1
-        ORDER BY 2 DESC LIMIT 1
-        """,
-        (client_id, period_start, period_end),
-    ).fetchone()
-    if len(uniques) < 4 or duplicated is None:
+
+    receipts: list[ReceiptPlan] = []
+    for txn_id, txn_date, amount, vendor in pool:
+        if len(receipts) == 4:
+            break
+        candidates = _candidates(conn, client_id, "receipt", amount,
+                                 txn_date, vendor)
+        if len(candidates) == 1 and candidates[0]["id"] == txn_id:
+            receipts.append(ReceiptPlan(
+                f"receipt-{len(receipts) + 1}.pdf", vendor, txn_date,
+                amount, "matched",
+            ))
+    if len(receipts) < 4:
         raise SystemExit(
-            "need >= 4 unique-amount and 1 duplicated-amount spend txns in"
-            f" {period_start:%Y-%m} — run tests/seed_errors.py first"
+            f"only {len(receipts)} transaction(s) in"
+            f" {period_start:%Y-%m} have a UNIQUE match signature"
+            " (amount exact, date ±5d, vendor) — the gate needs 4"
+            " clean-match receipt targets. Pick a different month with"
+            " --period YYYY-MM, or add distinct-amount spend to the sandbox."
         )
-    receipts = [
-        ReceiptPlan(f"receipt-{index}.pdf", vendor, txn_date, amount, "matched")
-        for index, (txn_date, amount, vendor) in enumerate(uniques, start=1)
-    ]
-    receipts.append(ReceiptPlan("receipt-5.pdf", "SEED VENDOR",
-                                duplicated[0], duplicated[1],
-                                "ambiguous_match"))
+
+    # The deliberately-ambiguous receipt comes FROM the seeded R010 twin
+    # pair (same vendor+amount days apart) — the perfect ambiguity fixture.
+    twin = conn.execute(
+        """
+        SELECT DISTINCT t.txn_date, t.amount, COALESCE(e.name, 'VENDOR')
+        FROM qbo_raw r
+        JOIN transactions t ON t.client_id = r.client_id
+                           AND t.qbo_id = r.qbo_id AND t.txn_type = r.entity_type
+        LEFT JOIN entities e ON e.id = t.entity_id
+        WHERE r.client_id = %s
+          AND r.payload ->> 'PrivateNote' LIKE 'CAROLUS-SEED-1 %%'
+          AND t.qbo_deleted_at IS NULL
+        ORDER BY t.txn_date LIMIT 1
+        """,
+        (client_id,),
+    ).fetchone()
+    if twin is None:  # seeds absent: any matcher-verified ambiguous signature
+        for txn_id, txn_date, amount, vendor in pool:
+            if len(_candidates(conn, client_id, "receipt", amount, txn_date,
+                               vendor)) >= 2:
+                twin = (txn_date, amount, vendor)
+                break
+    if twin is None:
+        raise SystemExit(
+            "no ambiguous-match signature found (need two same-vendor,"
+            " same-amount txns within the window) — run tests/seed_errors.py"
+            " (the R010 pair provides this) or pick another --period"
+        )
+    twin_date, twin_amount, twin_vendor = twin
+    if len(_candidates(conn, client_id, "receipt", twin_amount, twin_date,
+                       twin_vendor)) < 2:
+        raise SystemExit(
+            "seeded twin no longer yields >= 2 match candidates — reseed"
+            " with tests/seed_errors.py"
+        )
+    receipts.append(ReceiptPlan("receipt-5.pdf", twin_vendor, twin_date,
+                                twin_amount, "ambiguous_match"))
     receipts.append(ReceiptPlan("receipt-6.pdf", "ROADSIDE DINER",
                                 period_start + timedelta(days=8),
                                 Decimal("9123.47"), "no_matching_txn"))
