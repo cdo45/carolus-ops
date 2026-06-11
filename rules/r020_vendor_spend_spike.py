@@ -4,9 +4,14 @@ WHY: a vendor that normally bills a few hundred a month suddenly billing
 thousands is how busted budgets, duplicate invoicing, scope creep, and
 vendor fraud all first show up. Comparing each vendor to ITS OWN trailing
 six-month average (not a fixed threshold) keeps the signal meaningful for
-both small and large vendors; the $2,500 floor keeps trivia out. Spend is
+both small and large vendors; the $5,000 floor keeps trivia out. Spend is
 measured on expense-recording transactions (Bill, Purchase) — BillPayments
 are excluded so paying an old bill doesn't double-count.
+
+Recalibrated per controller audit: 2.5x -> 3x, $2,500 -> $5,000, and the
+vendor must show activity in >= 3 of the trailing 6 months — a baseline
+of one or two purchases is noise, not a spending pattern to spike against
+(brand-new big vendors are R021's job).
 """
 
 from __future__ import annotations
@@ -22,14 +27,14 @@ rule_code: str = "R020"
 severity: str = "warn"
 title: str = "Vendor spend spike"
 description: str = (
-    "Vendor's current-month spend exceeds 2.5x its trailing-6-month "
-    "average AND $2,500. A brand-new vendor with no history trips this "
-    "on any month over $2,500 (see also R021)."
+    "Vendor's current-month spend exceeds 3x its trailing-6-month "
+    "average AND $5,000, with activity in >= 3 of the trailing 6 months."
 )
 
-SPIKE_NUM: int = 12  # month_spend * 12 > trailing_total * 5  <=>
-SPIKE_DEN: int = 5  # month_spend > 2.5 * (trailing_total / 6), exact in SQL
-FLOOR: int = 2500
+SPIKE_NUM: int = 2  # month_spend * 2 > trailing_total * 1  <=>
+SPIKE_DEN: int = 1  # month_spend > 3 * (trailing_total / 6), exact in SQL
+FLOOR: int = 5000
+MIN_ACTIVE_MONTHS: int = 3
 
 
 def months_back(day: date, months: int) -> date:
@@ -47,7 +52,9 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
                COALESCE(SUM(t.amount) FILTER (
                    WHERE t.txn_date >= %(month_start)s), 0) AS month_spend,
                COALESCE(SUM(t.amount) FILTER (
-                   WHERE t.txn_date < %(month_start)s), 0) AS trailing_total
+                   WHERE t.txn_date < %(month_start)s), 0) AS trailing_total,
+               COUNT(DISTINCT date_trunc('month', t.txn_date)) FILTER (
+                   WHERE t.txn_date < %(month_start)s) AS active_months
         FROM entities e
         JOIN transactions t ON t.entity_id = e.id AND t.client_id = e.client_id
         WHERE e.client_id = %(client_id)s
@@ -63,6 +70,8 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
                    WHERE t.txn_date >= %(month_start)s), 0) * %(num)s
              > COALESCE(SUM(t.amount) FILTER (
                    WHERE t.txn_date < %(month_start)s), 0) * %(den)s
+           AND COUNT(DISTINCT date_trunc('month', t.txn_date)) FILTER (
+                   WHERE t.txn_date < %(month_start)s) >= %(min_months)s
         """,
         {
             "client_id": client_id,
@@ -72,6 +81,7 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
             "floor": FLOOR,
             "num": SPIKE_NUM,
             "den": SPIKE_DEN,
+            "min_months": MIN_ACTIVE_MONTHS,
         },
     ).fetchall()
     return [
@@ -83,8 +93,9 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
                 "month_spend": str(month_spend),
                 "trailing_6mo_total": str(trailing_total),
                 "trailing_6mo_avg": str(round(trailing_total / 6, 2)),
+                "active_months": active_months,
                 "month_start": month_start.isoformat(),
             },
         )
-        for entity_id, name, month_spend, trailing_total in rows
+        for entity_id, name, month_spend, trailing_total, active_months in rows
     ]

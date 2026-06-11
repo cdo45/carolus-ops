@@ -5,6 +5,11 @@ it breaks 1099 totals, vendor spend reports, duplicate detection (R010
 keys on vendor), and job costing. Usually a bank-feed entry accepted
 without coding. Every spend transaction above the floor must name who got
 paid.
+
+Recalibrated per controller audit: Purchases whose raw EntityRef names an
+Employee are exempt — employees aren't synced until P8 (payroll), so the
+canonical entity_id is legitimately NULL; the payee IS named in QBO. Read
+from the staged payload, the source of truth for what QBO actually holds.
 """
 
 from __future__ import annotations
@@ -30,14 +35,24 @@ THRESHOLD: int = 500
 def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]:
     rows = conn.execute(
         """
-        SELECT id, qbo_id, txn_type, txn_date, amount
-        FROM transactions
-        WHERE client_id = %s
-          AND txn_type IN ('Purchase', 'Bill')
-          AND entity_id IS NULL
-          AND amount >= %s
-          AND txn_date <= %s
-          AND qbo_deleted_at IS NULL
+        SELECT t.id, t.qbo_id, t.txn_type, t.txn_date, t.amount
+        FROM transactions t
+        WHERE t.client_id = %s
+          AND t.txn_type IN ('Purchase', 'Bill')
+          AND t.entity_id IS NULL
+          AND t.amount >= %s
+          AND t.txn_date <= %s
+          AND t.qbo_deleted_at IS NULL
+          AND NOT EXISTS (
+              -- employee payees exist in QBO but not in canonical until P8
+              SELECT 1 FROM qbo_raw r
+              WHERE r.client_id = t.client_id
+                AND r.entity_type = t.txn_type
+                AND r.qbo_id = t.qbo_id
+                AND lower(COALESCE(r.payload #>> '{EntityRef,type}',
+                                   r.payload #>> '{EntityRef,Type}'))
+                    = 'employee'
+          )
         """,
         (client_id, THRESHOLD, as_of),
     ).fetchall()

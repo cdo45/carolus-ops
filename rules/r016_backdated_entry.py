@@ -7,6 +7,10 @@ Compares QBO's own CreateTime metadata (when the entry was actually
 typed) against txn_date (when it claims to have happened); both are
 content-derived from the raw payload. Legitimate catch-up bookkeeping
 fires this too — that pattern is itself worth a conversation.
+
+Recalibrated per controller audit: Bill and BillPayment are exempt —
+vendor invoices routinely arrive (and get keyed) weeks after their
+invoice date; that is mail, not manipulation. 45 days holds for the rest.
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
                (qbo_created_at AT TIME ZONE 'UTC')::date - txn_date AS days_late
         FROM transactions
         WHERE client_id = %s
+          AND txn_type NOT IN ('Bill', 'BillPayment')
           AND qbo_created_at IS NOT NULL
           AND txn_date IS NOT NULL
           AND txn_date <= %s

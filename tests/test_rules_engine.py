@@ -177,6 +177,35 @@ def test_manually_resolved_key_is_never_reopened(conn: psycopg.Connection) -> No
     assert [s for _, s, _ in flag_rows(conn, client_id, "T900")] == ["resolved"]
 
 
+def test_finding_severity_override(conn: psycopg.Connection) -> None:
+    """A finding may carry its own severity (split-path rules like R032);
+    the module severity stays the default."""
+    client_id = make_client(conn)
+    rule, holder = fake_rule(severity="warn")
+    holder["findings"] = [
+        Finding("transaction", "ref-critical", severity="critical"),
+        Finding("transaction", "ref-default"),
+    ]
+
+    run_rules(conn, client_id, as_of=AS_OF, rules=[rule])
+
+    severities = dict(conn.execute(
+        "SELECT source_ref, severity FROM flags WHERE client_id = %s",
+        (client_id,),
+    ).fetchall())
+    assert severities == {"ref-critical": "critical", "ref-default": "warn"}
+
+
+def test_bad_severity_override_fails_the_run(conn: psycopg.Connection) -> None:
+    from rules.base import InvalidRule
+
+    client_id = make_client(conn)
+    rule, holder = fake_rule()
+    holder["findings"] = [Finding("transaction", "ref-1", severity="warning")]
+    with pytest.raises(InvalidRule, match="severity"):
+        run_rules(conn, client_id, as_of=AS_OF, rules=[rule])
+
+
 def test_unsourced_finding_fails_the_run(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
     rule, holder = fake_rule()

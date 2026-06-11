@@ -8,8 +8,13 @@ should be tracked as such, or are padding a closed cost code. Any of
 those silently rewrites a number someone already relied on.
 
 Completion is the canonical jobs.status in ('completed', 'closed') —
-curated by Carlos, since QBO has no native job-completion state. Until a
-completed_at date exists, ANY cost on a completed job fires.
+curated by Carlos, since QBO has no native job-completion state.
+
+Recalibrated per controller audit: jobs.completed_at (migration 0011,
+curated) grants a 14-day grace window — trailing sub invoices and
+punch-list costs inside two weeks of completion are normal close-out,
+not margin rewriting. A completed/closed job with NULL completed_at gets
+no grace (prior behavior: any cost fires).
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ description: str = (
 )
 
 DONE_STATUSES: tuple[str, ...] = ("completed", "closed")
+GRACE_DAYS: int = 14
 
 
 def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]:
@@ -43,13 +49,15 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
         JOIN accounts a ON a.id = jl.account_id
         WHERE t.client_id = %s
           AND j.status = ANY(%s)
+          AND (j.completed_at IS NULL
+               OR t.txn_date > j.completed_at + %s)
           AND jl.posting_type = 'debit'
           AND a.acct_type IN ('Cost of Goods Sold', 'Expense', 'Other Expense')
           AND t.txn_date <= %s
           AND t.qbo_deleted_at IS NULL
         GROUP BY t.id, j.id
         """,
-        (client_id, list(DONE_STATUSES), as_of),
+        (client_id, list(DONE_STATUSES), GRACE_DAYS, as_of),
     ).fetchall()
     return [
         Finding(

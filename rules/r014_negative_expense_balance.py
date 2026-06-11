@@ -6,6 +6,9 @@ account without the original charge being there, a reversal was entered
 twice, or income was misposted into an expense line. Each one distorts
 both the P&L and any job costing built on it. Period = the calendar
 month containing as_of (the month being closed).
+
+Recalibrated per controller audit: $250 magnitude floor — tiny net
+credits are rounding/timing, not mispostings worth queue time.
 """
 
 from __future__ import annotations
@@ -45,7 +48,7 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
           AND t.qbo_deleted_at IS NULL
         GROUP BY a.id
         HAVING SUM(CASE WHEN jl.posting_type = 'credit'
-                        THEN jl.amount ELSE -jl.amount END) > 0
+                        THEN jl.amount ELSE -jl.amount END) > 250
         """,
         (client_id, list(EXPENSE_TYPES), period_start, as_of),
     ).fetchall()

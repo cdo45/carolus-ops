@@ -5,8 +5,12 @@ existential cash-flow exposure — one slow payer (or one dispute on one
 job) and payroll is at risk. Construction makes this worse: progress
 billing piles receivables onto whichever job is mid-cycle. The rule
 measures each customer's share of total open AR (net debit balance on
-Accounts Receivable accounts by transaction entity) and fires above 40%
-share AND $10,000 — both, so small books don't alarm on every invoice.
+Accounts Receivable accounts by transaction entity) and fires above 50%
+share AND $25,000 — both, so small books don't alarm on every invoice.
+
+Recalibrated per controller audit: 40%/$10k → 50%/$25k and severity
+info — concentration is structural context for the advisory call, not a
+bookkeeping defect to fix this close.
 """
 
 from __future__ import annotations
@@ -19,16 +23,16 @@ import psycopg
 from rules.base import Finding
 
 rule_code: str = "R023"
-severity: str = "warn"
+severity: str = "info"
 title: str = "A/R concentration risk"
 description: str = (
-    "A single customer holds > 40% of open accounts receivable and more "
-    "than $10,000."
+    "A single customer holds > 50% of open accounts receivable and more "
+    "than $25,000."
 )
 
-SHARE_NUM: int = 2  # net * 5 > total * 2  <=>  net/total > 0.4, exact
-SHARE_DEN: int = 5
-FLOOR: int = 10000
+SHARE_NUM: int = 1  # net * 2 > total * 1  <=>  net/total > 0.5, exact
+SHARE_DEN: int = 2
+FLOOR: int = 25000
 
 
 def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]:

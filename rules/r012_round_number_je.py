@@ -6,6 +6,9 @@ more ending in 000 is the auditor's oldest tell for "someone made this
 number up" — period-smoothing, balance plugs, or worse. Usually benign
 (accruals), which is why it is a warn, but every one deserves an answer
 to "where did this number come from?".
+
+Recalibrated per controller audit: floor raised $1,000 -> $5,000 — the
+$1k-$4k band was dominated by legitimate small accruals.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ rule_code: str = "R012"
 severity: str = "warn"
 title: str = "Round-number journal entry"
 description: str = (
-    "JournalEntry lines >= $1,000 that are exact multiples of 1,000 — "
+    "JournalEntry lines >= $5,000 that are exact multiples of 1,000 — "
     "the classic signature of plugged or estimated numbers."
 )
 
@@ -37,7 +40,7 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
           AND t.txn_type = 'JournalEntry'
           AND t.qbo_deleted_at IS NULL
           AND (t.txn_date IS NULL OR t.txn_date <= %s)
-          AND jl.amount >= 1000
+          AND jl.amount >= 5000
           AND jl.amount %% 1000 = 0
         GROUP BY t.id
         """,

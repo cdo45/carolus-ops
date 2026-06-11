@@ -6,6 +6,10 @@ number and forgot it — misclassified expenses, unreconciled transfers, or
 the bookkeeping equivalent of a junk drawer ("Ask My Accountant"). Every
 dollar aging there is a dollar whose true account is unknown, and it
 compounds straight into a messy year-end.
+
+Recalibrated per controller audit: added Opening Balance Equity and
+Reconciliation Discrepanc% to the name patterns — the two other places
+QuickBooks itself parks unexplained numbers.
 """
 
 from __future__ import annotations
@@ -26,7 +30,10 @@ description: str = (
     "balance."
 )
 
-NAME_PATTERN: str = r"(suspense|clearing|ask my accountant|uncategorized)"
+NAME_PATTERN: str = (
+    r"(suspense|clearing|ask my accountant|uncategorized"
+    r"|opening balance equity|reconciliation discrepanc)"
+)
 AGE_DAYS: int = 30
 
 

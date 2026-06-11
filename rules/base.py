@@ -51,11 +51,17 @@ class Finding:
     source_ref is the canonical row's UUID as a string; source_type names
     the table family it points into. (client_id, rule_code, source_ref)
     is the deterministic natural key for flag lifecycle.
+
+    severity, when set, overrides the rule's module-level severity for
+    THIS finding (rules with split severity paths, e.g. R032). The
+    natural key is unchanged — an open flag keeps the severity it was
+    born with until it resolves.
     """
 
     source_type: str
     source_ref: str
     detail: dict[str, Any] = field(default_factory=dict)
+    severity: str | None = None
 
 
 @runtime_checkable
@@ -91,3 +97,8 @@ def validate_finding(rule_code: str, finding: Finding) -> None:
         raise UnsourcedFinding(f"rule {rule_code}: finding has empty source_ref")
     if not str(finding.source_type).strip():
         raise UnsourcedFinding(f"rule {rule_code}: finding has empty source_type")
+    if finding.severity is not None and finding.severity not in SEVERITIES:
+        raise InvalidRule(
+            f"rule {rule_code}: finding severity {finding.severity!r}"
+            f" not in {SEVERITIES}"
+        )

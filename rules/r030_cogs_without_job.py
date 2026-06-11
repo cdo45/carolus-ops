@@ -5,8 +5,12 @@ error on EVERY job. Material and sub costs that don't carry a job tag
 make profitable jobs look better and losing jobs invisible — the losing
 job is the one bleeding the company while its costs hide in overhead.
 This is the single most common construction bookkeeping failure and the
-reason job-cost reports get ignored. $250 floor keeps shop consumables
+reason job-cost reports get ignored. The floor keeps shop consumables
 out of the queue.
+
+Recalibrated per controller audit: floor raised $250 -> $500; the
+aggregate leak below $500/line is R034's job (ratio watch), not
+per-transaction queue items.
 """
 
 from __future__ import annotations
@@ -22,11 +26,11 @@ rule_code: str = "R030"
 severity: str = "warn"
 title: str = "COGS posted without a job"
 description: str = (
-    "Cost-of-goods debit lines >= $250 with no job attribution. Every "
+    "Cost-of-goods debit lines >= $500 with no job attribution. Every "
     "untagged cost dollar distorts the margin of every job."
 )
 
-THRESHOLD: int = 250
+THRESHOLD: int = 500
 
 
 def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]:

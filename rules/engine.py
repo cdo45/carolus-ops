@@ -96,7 +96,7 @@ def _reconcile(
                 (
                     client_id,
                     rule.rule_code,
-                    rule.severity,
+                    finding.severity or rule.severity,
                     finding.source_type,
                     source_ref,
                     json.dumps(finding.detail, sort_keys=True, default=str),

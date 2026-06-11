@@ -6,6 +6,10 @@ near-certain double entry — the vendor's own reference appears twice. Also
 catches the fraud variant: a re-submitted invoice with the amount nudged.
 Every member of the group is flagged (any of them may be the one to void).
 Severity critical.
+
+Recalibrated per controller audit: DocNumbers of <= 2 characters or
+junk placeholders (na, n/a, none, -, .) are ignored — those are data-entry
+filler, not vendor references, and matched constantly.
 """
 
 from __future__ import annotations
@@ -37,7 +41,10 @@ def run(conn: psycopg.Connection, client_id: UUID, as_of: date) -> list[Finding]
             WHERE client_id = %(client_id)s
               AND txn_type = 'Bill'
               AND entity_id IS NOT NULL
-              AND doc_number IS NOT NULL AND btrim(doc_number) <> ''
+              AND doc_number IS NOT NULL
+              AND length(btrim(doc_number)) > 2
+              AND lower(btrim(doc_number)) NOT IN
+                  ('na', 'n/a', 'none', '-', '.')
               AND txn_date <= %(as_of)s
               AND qbo_deleted_at IS NULL
             GROUP BY entity_id, doc_number

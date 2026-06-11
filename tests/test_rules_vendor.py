@@ -44,32 +44,44 @@ def test_r020_vendor_spend_spike(conn: psycopg.Connection) -> None:
     spiky = make_entity(conn, client_id, kind="vendor", name="Spiky Vendor")
     steady = make_entity(conn, client_id, kind="vendor", name="Steady Vendor")
     small = make_entity(conn, client_id, kind="vendor", name="Small Vendor")
+    sparse = make_entity(conn, client_id, kind="vendor", name="Sparse Vendor")
 
-    # fires: history of $100, this month $4,000
-    balanced_purchase(conn, client_id, amount="100.00",
-                      txn_date=date(2026, 3, 10), entity_id=spiky, **books)
-    balanced_purchase(conn, client_id, amount="4000.00",
+    # fires: $100/month across 3 trailing months, then $6,000 this month
+    for month in (2, 3, 4):
+        balanced_purchase(conn, client_id, amount="100.00",
+                          txn_date=date(2026, month, 10), entity_id=spiky,
+                          **books)
+    balanced_purchase(conn, client_id, amount="6000.00",
                       txn_date=date(2026, 6, 5), entity_id=spiky, **books)
-    # non-fire: $3,000/month steady, $4,000 this month (< 2.5x average)
+    # non-fire: $3,000/month steady, $6,000 this month (< 3x average and
+    # also a legitimate busy month)
     for month in (12, 1, 2, 3, 4, 5):
         year = 2025 if month == 12 else 2026
         balanced_purchase(conn, client_id, amount="3000.00",
                           txn_date=date(year, month, 15), entity_id=steady,
                           **books)
-    balanced_purchase(conn, client_id, amount="4000.00",
+    balanced_purchase(conn, client_id, amount="6000.00",
                       txn_date=date(2026, 6, 5), entity_id=steady, **books)
-    # non-fire: huge ratio but under the $2,500 floor
+    # non-fire: huge ratio but under the $5,000 floor
     balanced_purchase(conn, client_id, amount="50.00",
                       txn_date=date(2026, 2, 10), entity_id=small, **books)
     balanced_purchase(conn, client_id, amount="2000.00",
                       txn_date=date(2026, 6, 5), entity_id=small, **books)
+    # non-fire: only 2 trailing active months — no baseline to spike against
+    for month in (3, 4):
+        balanced_purchase(conn, client_id, amount="100.00",
+                          txn_date=date(2026, month, 12), entity_id=sparse,
+                          **books)
+    balanced_purchase(conn, client_id, amount="6000.00",
+                      txn_date=date(2026, 6, 5), entity_id=sparse, **books)
     conn.commit()
 
     findings = r020_vendor_spend_spike.run(conn, client_id, AS_OF)
 
     assert refs(findings) == {str(spiky)}
-    assert findings[0].detail["month_spend"] == "4000.00"
-    assert findings[0].detail["trailing_6mo_total"] == "100.00"
+    assert findings[0].detail["month_spend"] == "6000.00"
+    assert findings[0].detail["trailing_6mo_total"] == "300.00"
+    assert findings[0].detail["active_months"] == 3
 
 
 def test_r021_new_vendor_large(conn: psycopg.Connection) -> None:
@@ -141,13 +153,16 @@ def test_r023_ar_concentration(conn: psycopg.Connection) -> None:
     whale = make_entity(conn, client_id, kind="customer", name="Whale Corp")
     minnow = make_entity(conn, client_id, kind="customer", name="Minnow LLC")
 
-    ar_invoice(conn, client_id, ar, income, whale, "15000.00")
-    ar_invoice(conn, client_id, ar, income, minnow, "5000.00")
+    ar_invoice(conn, client_id, ar, income, whale, "30000.00")
+    ar_invoice(conn, client_id, ar, income, minnow, "10000.00")
     conn.commit()
 
     findings = r023_ar_concentration.run(conn, client_id, AS_OF)
-    assert refs(findings) == {str(whale)}  # 75% share and > $10k
+    assert refs(findings) == {str(whale)}  # 75% share and > $25k
     assert findings[0].detail["share_pct"] == "75.0"
+    assert r023_ar_concentration.severity == "info", (
+        "audit: concentration is advisory context, not a close defect"
+    )
 
 
 def test_r023_non_fire_below_floor(conn: psycopg.Connection) -> None:
@@ -159,8 +174,8 @@ def test_r023_non_fire_below_floor(conn: psycopg.Connection) -> None:
     big_share = make_entity(conn, client_id, kind="customer", name="Big Share")
     other = make_entity(conn, client_id, kind="customer", name="Other")
 
-    # 64% share but only $9,000 — under the floor; also: payments reduce AR
-    ar_invoice(conn, client_id, ar, income, big_share, "15000.00")
+    # 83% share but only $24,000 — under the $25k floor; payments reduce AR
+    ar_invoice(conn, client_id, ar, income, big_share, "30000.00")
     make_txn(conn, client_id, txn_type="Payment", txn_date=date(2026, 5, 20),
              entity_id=big_share, amount="6000.00",
              lines=[{"account": bank, "amount": "6000.00", "posting": "debit"},
@@ -191,3 +206,31 @@ def test_r024_missing_vendor_on_spend(conn: psycopg.Connection) -> None:
     findings = r024_missing_vendor_on_spend.run(conn, client_id, AS_OF)
 
     assert refs(findings) == {str(fires_purchase), str(fires_bill)}
+
+
+def test_r024_employee_payee_exempt(conn: psycopg.Connection) -> None:
+    """Employees aren't synced until P8 — a Purchase whose raw EntityRef
+    names an Employee has a payee in QBO, just not in canonical."""
+    from psycopg.types.json import Jsonb
+
+    client_id = make_client(conn)
+    books = setup_books(conn, client_id)
+    reimbursement = balanced_purchase(conn, client_id, amount="800.00",
+                                      txn_date=date(2026, 6, 1),
+                                      entity_id=None, **books)
+    qbo_id = conn.execute(
+        "SELECT qbo_id FROM transactions WHERE id = %s", (reimbursement,)
+    ).fetchone()
+    assert qbo_id is not None
+    conn.execute(
+        """
+        INSERT INTO qbo_raw (client_id, entity_type, qbo_id, payload)
+        VALUES (%s, 'Purchase', %s, %s)
+        """,
+        (client_id, qbo_id[0],
+         Jsonb({"Id": qbo_id[0],
+                "EntityRef": {"value": "55", "type": "Employee"}})),
+    )
+    conn.commit()
+
+    assert r024_missing_vendor_on_spend.run(conn, client_id, AS_OF) == []

@@ -51,16 +51,16 @@ def test_r030_cogs_without_job(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
     books = setup_books(conn, client_id)
 
-    fires = balanced_purchase(conn, client_id, amount="400.00",
+    fires = balanced_purchase(conn, client_id, amount="600.00",
                               txn_date=date(2026, 6, 1),
                               bank=books["bank"], expense=books["cogs"])
-    balanced_purchase(conn, client_id, amount="200.00",  # non-fire: under floor
-                      txn_date=date(2026, 6, 2),
+    balanced_purchase(conn, client_id, amount="400.00",  # non-fire: under the
+                      txn_date=date(2026, 6, 2),  # recalibrated $500 floor
                       bank=books["bank"], expense=books["cogs"])
-    balanced_purchase(conn, client_id, amount="400.00",  # non-fire: tagged
+    balanced_purchase(conn, client_id, amount="600.00",  # non-fire: tagged
                       txn_date=date(2026, 6, 3), job=books["job"],
                       bank=books["bank"], expense=books["cogs"])
-    balanced_purchase(conn, client_id, amount="400.00",  # non-fire: not COGS
+    balanced_purchase(conn, client_id, amount="600.00",  # non-fire: not COGS
                       txn_date=date(2026, 6, 4),
                       bank=books["bank"], expense=books["overhead"])
     conn.commit()
@@ -68,7 +68,7 @@ def test_r030_cogs_without_job(conn: psycopg.Connection) -> None:
     findings = r030_cogs_without_job.run(conn, client_id, AS_OF)
 
     assert refs(findings) == {str(fires)}
-    assert findings[0].detail["untagged_cogs"] == "400.00"
+    assert findings[0].detail["untagged_cogs"] == "600.00"
 
 
 def test_r031_job_cost_after_completion(conn: psycopg.Connection) -> None:
@@ -97,6 +97,29 @@ def test_r031_job_cost_after_completion(conn: psycopg.Connection) -> None:
     assert by_ref[str(fires_completed)]["job_status"] == "completed"
 
 
+def test_r031_completed_at_grants_grace_window(
+    conn: psycopg.Connection,
+) -> None:
+    """Punch-list costs within 14 days of completed_at are close-out, not
+    margin rewriting; day 15+ fires."""
+    client_id = make_client(conn)
+    books = setup_books(conn, client_id)
+    done = make_job(conn, client_id, entity_id=books["customer"],
+                    name="Dated Deck", status="completed",
+                    completed_at=date(2026, 5, 1))
+
+    balanced_purchase(  # non-fire: 9 days after completion (inside grace)
+        conn, client_id, amount="300.00", txn_date=date(2026, 5, 10),
+        job=done, bank=books["bank"], expense=books["cogs"])
+    fires = balanced_purchase(  # 19 days after completion: outside grace
+        conn, client_id, amount="450.00", txn_date=date(2026, 5, 20),
+        job=done, bank=books["bank"], expense=books["cogs"])
+    conn.commit()
+
+    findings = r031_job_cost_after_completion.run(conn, client_id, AS_OF)
+    assert refs(findings) == {str(fires)}
+
+
 def bill_job(
     conn: psycopg.Connection, client_id: UUID, books: dict[str, UUID],
     job: UUID, amount: str,
@@ -111,24 +134,40 @@ def bill_job(
 
 def cost_job(
     conn: psycopg.Connection, client_id: UUID, books: dict[str, UUID],
-    job: UUID, amount: str,
+    job: UUID, amount: str, when: date = date(2026, 5, 10),
 ) -> None:
-    balanced_purchase(conn, client_id, amount=amount, txn_date=date(2026, 5, 10),
+    balanced_purchase(conn, client_id, amount=amount, txn_date=when,
                       job=job, bank=books["bank"], expense=books["cogs"])
 
 
-def test_r032_job_margin_negative(conn: psycopg.Connection) -> None:
+def test_r032_severity_splits_on_depth_and_maturity(
+    conn: psycopg.Connection,
+) -> None:
     client_id = make_client(conn)
     books = setup_books(conn, client_id)
-    underwater = make_job(conn, client_id, entity_id=books["customer"],
-                          name="Underwater Job")
+    deep_mature = make_job(conn, client_id, entity_id=books["customer"],
+                           name="Deep Mature Job")
+    deep_recent = make_job(conn, client_id, entity_id=books["customer"],
+                           name="Deep Recent Job")
+    slight = make_job(conn, client_id, entity_id=books["customer"],
+                      name="Slightly Under Job")
     healthy = make_job(conn, client_id, entity_id=books["customer"],
                        name="Healthy Job")
     unbilled = make_job(conn, client_id, entity_id=books["customer"],
                         name="Unbilled Job")
 
-    bill_job(conn, client_id, books, underwater, "500.00")
-    cost_job(conn, client_id, books, underwater, "2000.00")  # margin -1500
+    # critical: 400% of billings AND first cost 51 days old
+    bill_job(conn, client_id, books, deep_mature, "500.00")
+    cost_job(conn, client_id, books, deep_mature, "2000.00",
+             when=date(2026, 4, 20))
+    # info: just as deep but the first cost is only 26 days old
+    bill_job(conn, client_id, books, deep_recent, "500.00")
+    cost_job(conn, client_id, books, deep_recent, "2000.00",
+             when=date(2026, 5, 15))
+    # info: mature but only 105% of billings (under the 110% bar)
+    bill_job(conn, client_id, books, slight, "1000.00")
+    cost_job(conn, client_id, books, slight, "1050.00",
+             when=date(2026, 4, 20))
     bill_job(conn, client_id, books, healthy, "3000.00")
     cost_job(conn, client_id, books, healthy, "2000.00")  # margin +1000
     cost_job(conn, client_id, books, unbilled, "800.00")  # no billing yet
@@ -136,30 +175,37 @@ def test_r032_job_margin_negative(conn: psycopg.Connection) -> None:
 
     findings = r032_job_margin_negative.run(conn, client_id, AS_OF)
 
-    assert refs(findings) == {str(underwater)}
-    assert findings[0].detail["margin"] == "-1500.00"
-    assert r032_job_margin_negative.severity == "critical"
+    grades = {f.source_ref: (f.severity, f.detail["grade"])
+              for f in findings}
+    assert grades == {
+        str(deep_mature): ("critical", "critical"),
+        str(deep_recent): ("info", "info"),
+        str(slight): ("info", "info"),
+    }
+    by_ref = {f.source_ref: f.detail for f in findings}
+    assert by_ref[str(deep_mature)]["margin"] == "-1500.00"
 
 
 def test_r033_deposit_unapplied(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
     books = setup_books(conn, client_id)
 
-    def payment(days_old: int, linked: bool) -> UUID:
+    def payment(days_old: int, linked: bool, amount: str = "1000.00") -> UUID:
         when = AS_OF - timedelta(days=days_old)
         return make_txn(
             conn, client_id, txn_type="Payment", txn_date=when,
-            entity_id=books["customer"], amount="1000.00",
+            entity_id=books["customer"], amount=amount,
             has_linked_txn=linked,
-            lines=[{"account": books["bank"], "amount": "1000.00",
+            lines=[{"account": books["bank"], "amount": amount,
                     "posting": "debit"},
-                   {"account": books["ar"], "amount": "1000.00",
+                   {"account": books["ar"], "amount": amount,
                     "posting": "credit"}],
         )
 
     fires = payment(days_old=35, linked=False)
     payment(days_old=10, linked=False)  # non-fire: recent
     payment(days_old=35, linked=True)  # non-fire: applied
+    payment(days_old=35, linked=False, amount="300.00")  # non-fire: < $500
     conn.commit()
 
     findings = r033_deposit_unapplied.run(conn, client_id, AS_OF)

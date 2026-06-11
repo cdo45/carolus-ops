@@ -54,9 +54,9 @@ def test_r010_duplicate_payment(conn: psycopg.Connection) -> None:
         conn, client_id, amount="750.00", txn_date=date(2026, 6, 4),
         entity_id=books["vendor"], **_accounts(books),
     )
-    # non-fire: small amount (<= $100)
+    # non-fire: under the $500 floor
     for day in (1, 3):
-        balanced_purchase(conn, client_id, amount="90.00",
+        balanced_purchase(conn, client_id, amount="400.00",
                           txn_date=date(2026, 6, day),
                           entity_id=books["vendor"], **_accounts(books))
     # non-fire: same amount but 15 days apart
@@ -89,6 +89,19 @@ def _accounts(books: dict[str, UUID]) -> dict[str, UUID]:
     return {"bank": books["bank"], "expense": books["expense"]}
 
 
+def test_r010_recurring_charges_suppressed(conn: psycopg.Connection) -> None:
+    """Three identical amounts in a year = subscription, not duplicates."""
+    client_id = make_client(conn)
+    books = setup_books(conn, client_id)
+    for day in (1, 5, 9):  # close enough to pair, but 3 occurrences/12mo
+        balanced_purchase(conn, client_id, amount="600.00",
+                          txn_date=date(2026, 6, day),
+                          entity_id=books["vendor"], **_accounts(books))
+    conn.commit()
+
+    assert r010_duplicate_payment.run(conn, client_id, AS_OF) == []
+
+
 def test_r011_duplicate_bill(conn: psycopg.Connection) -> None:
     client_id = make_client(conn)
     books = setup_books(conn, client_id)
@@ -109,6 +122,13 @@ def test_r011_duplicate_bill(conn: psycopg.Connection) -> None:
     # non-fire: no doc number
     make_txn(conn, client_id, doc_number=None, amount="100.00", **bill_kwargs)
     make_txn(conn, client_id, doc_number=None, amount="100.00", **bill_kwargs)
+    conn.commit()
+
+    # non-fire: junk placeholder doc numbers (short / na variants)
+    for junk in ("12", "N/A"):
+        for _ in range(2):
+            make_txn(conn, client_id, doc_number=junk, amount="100.00",
+                     **bill_kwargs)
     conn.commit()
 
     findings = r011_duplicate_bill.run(conn, client_id, AS_OF)
@@ -143,6 +163,12 @@ def test_r012_round_number_je(conn: psycopg.Connection) -> None:
              ])
     balanced_purchase(conn, client_id, amount="5000.00", txn_date=MONDAY,
                       **_accounts(books))
+    make_txn(conn, client_id, txn_type="JournalEntry", txn_date=MONDAY,
+             lines=[  # non-fire: round but under the $5,000 floor
+                 {"account": books["expense"], "amount": "3000.00"},
+                 {"account": books["bank"], "amount": "3000.00",
+                  "posting": "credit"},
+             ])
     conn.commit()
 
     findings = r012_round_number_je.run(conn, client_id, AS_OF)
@@ -183,10 +209,19 @@ def test_r013_suspense_aging(conn: psycopg.Connection) -> None:
                       **_accounts(books))
     conn.commit()
 
+    obe = make_account(conn, client_id, name="Opening Balance Equity",
+                       acct_type="Equity")
+    balanced_purchase(conn, client_id, amount="55.00", txn_date=old,
+                      bank=books["bank"], expense=obe)
+    conn.commit()
+
     findings = r013_suspense_aging.run(conn, client_id, AS_OF)
 
-    assert refs(findings) == {str(suspense)}
-    assert findings[0].detail["aged_net"] == "100.00"
+    assert refs(findings) == {str(suspense), str(obe)}, (
+        "audit additions: Opening Balance Equity is a parking spot too"
+    )
+    by_ref = {f.source_ref: f.detail for f in findings}
+    assert by_ref[str(suspense)]["aged_net"] == "100.00"
 
 
 def test_r014_negative_expense_balance(conn: psycopg.Connection) -> None:
@@ -211,6 +246,13 @@ def test_r014_negative_expense_balance(conn: psycopg.Connection) -> None:
                      "posting": "credit"},
                     {"account": books["bank"], "amount": "150.00",
                      "posting": "debit"}])
+    conn.commit()
+
+    small = make_account(conn, client_id, name="Postage", acct_type="Expense")
+    make_txn(conn, client_id, txn_date=in_month, amount="200.00",
+             lines=[{"account": small, "amount": "200.00", "posting": "credit"},
+                    {"account": books["bank"], "amount": "200.00",
+                     "posting": "debit"}])  # non-fire: under $250 floor
     conn.commit()
 
     findings = r014_negative_expense_balance.run(conn, client_id, AS_OF)
@@ -268,9 +310,19 @@ def test_r016_backdated_entry(conn: psycopg.Connection) -> None:
     )
     conn.commit()
 
+    late_bill = balanced_purchase(  # non-fire: Bills are exempt (mail lag)
+        conn, client_id, amount="120.00", txn_type="Bill",
+        txn_date=txn_date, **_accounts(books),
+    )
+    conn.execute(
+        "UPDATE transactions SET qbo_created_at = %s WHERE id = %s",
+        (datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc), late_bill),
+    )
+    conn.commit()
+
     findings = r016_backdated_entry.run(conn, client_id, AS_OF)
 
-    assert refs(findings) == {str(fires)}
+    assert refs(findings) == {str(fires)}, "Bill exempt; Purchase still fires"
     assert findings[0].detail["days_late"] == 61
 
 

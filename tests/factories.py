@@ -71,13 +71,15 @@ def make_job(
     entity_id: UUID | None = None,
     name: str = "Test Job",
     status: str = "active",
+    completed_at: date | None = None,
 ) -> UUID:
     row = conn.execute(
         """
-        INSERT INTO jobs (client_id, qbo_id, entity_id, name, status)
-        VALUES (%s, %s, %s, %s, %s) RETURNING id
+        INSERT INTO jobs (client_id, qbo_id, entity_id, name, status,
+                          completed_at)
+        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
         """,
-        (client_id, next_qbo_id("J"), entity_id, name, status),
+        (client_id, next_qbo_id("J"), entity_id, name, status, completed_at),
     ).fetchone()
     assert row is not None
     return row[0]
