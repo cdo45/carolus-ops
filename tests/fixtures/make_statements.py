@@ -100,22 +100,30 @@ def statement_pdf(
 
 
 def receipt_pdf(path: Path, *, merchant: str, txn_date: date,
-                total: Decimal) -> Path:
-    return _write_text_pdf(path, [
+                total: Decimal, footer: str | None = None) -> Path:
+    lines = [
         "RECEIPT",
         f"MERCHANT: {merchant}",
         f"DATE: {txn_date.isoformat()}",
         f"Subtotal {total - Decimal('1.00'):,.2f}",
         f"TOTAL: ${total:,.2f}",
         "THANK YOU",
-    ])
+    ]
+    if footer:  # e.g. a gate run nonce: changes the bytes, hence the sha256
+        lines.append(footer)
+    return _write_text_pdf(path, lines)
 
 
-def image_only_pdf(path: Path) -> Path:
-    """A page with marks but NO text layer — the needs_ocr case."""
+def image_only_pdf(path: Path, *, salt: int = 0) -> Path:
+    """A page with marks but NO text layer — the needs_ocr case.
+
+    salt shifts the geometry so different gate runs produce different
+    bytes (and therefore distinct sha256 identities) on purpose.
+    """
+    offset = salt % 40
     page = canvas.Canvas(str(path), pagesize=letter)
-    page.rect(72, 600, 450, 120, stroke=1, fill=0)
-    page.line(72, 580, 522, 580)
+    page.rect(72 + offset, 600, 450, 120, stroke=1, fill=0)
+    page.line(72, 580 - offset, 522, 580 - offset)
     page.showPage()
     page.save()
     return path

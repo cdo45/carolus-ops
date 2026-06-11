@@ -52,13 +52,14 @@ def make_entity(
     kind: str = "vendor",
     name: str = "Test Vendor",
     active: bool = True,
+    qbo_id: str | None = None,
 ) -> UUID:
     row = conn.execute(
         """
         INSERT INTO entities (client_id, qbo_id, kind, name, active)
         VALUES (%s, %s, %s, %s, %s) RETURNING id
         """,
-        (client_id, next_qbo_id("E"), kind, name, active),
+        (client_id, qbo_id or next_qbo_id("E"), kind, name, active),
     ).fetchone()
     assert row is not None
     return row[0]
@@ -150,11 +151,13 @@ def balanced_purchase(
     job: UUID | None = None,
     txn_type: str = "Purchase",
     has_linked_txn: bool | None = None,
+    qbo_id: str | None = None,
 ) -> UUID:
     """The common case: one debit to expense, one credit from bank."""
     return make_txn(
         conn, client_id, txn_type=txn_type, txn_date=txn_date,
         entity_id=entity_id, amount=amount, has_linked_txn=has_linked_txn,
+        qbo_id=qbo_id,
         lines=[
             {"account": expense, "amount": amount, "posting": "debit", "job": job},
             {"account": bank, "amount": amount, "posting": "credit"},
