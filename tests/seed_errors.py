@@ -12,18 +12,23 @@ enter git). Every seeded transaction's PrivateNote is tagged
 Idempotent-ish: re-runs read the existing manifest, verify each seeded
 transaction still exists in the sandbox, and create only what's missing.
 
-GENERATION ISOLATION: every seeding generation mints a nonce and creates
-its OWN vendors/customers ('CAROLUS SEED <nonce> <role>') for every seed
-that depends on entity history (R010's pair, R011's doc numbers, R020's
-baseline, R021's first-transaction, R023's whale, R027's twins, R032/R035
-jobs), and salts history-sensitive amounts by the nonce — so rules with
-trailing-window or first-ever semantics see clean history every reseed,
-no matter how many old generations the sandbox has accumulated. Old
-generations are left alone: tagged, inert, harmless. Stable-by-design
-names (accounts, the service item) are account-level and accumulate
-safely. Known limit: R023's A/R share dilutes as old generations pile up
-open invoices; if it starts missing, void old CAROLUS SEED invoices.
-Supporting objects are found by name before being created.
+GENERATION ISOLATION (strict, per seed): every seeding generation mints
+a nonce, and EVERY seed that creates or depends on entity history gets
+its OWN entity — 'CAROLUS SEED <nonce> <KIND> <RULE>'. No vendor or
+customer is shared across rule seeds (R010's twin pair shares its one
+vendor by design: the pair IS the signal). History-sensitive amounts are
+salted by the nonce. Rules with trailing-window or first-ever semantics
+therefore see clean history every reseed.
+
+GENERATION CLEANUP: before minting a new generation, prior CAROLUS-SEED
+invoices/bills still carrying OPEN balances are neutralized through the
+API — invoices voided (QBO allows it), bills offset with a zero-out
+VendorCredit tagged CAROLUS-SEED-CLEANUP (bills are not voidable; the
+credit zeroes the vendor's A/P, though the bill's own Balance remains —
+old per-bill flags are already open and inert). Closed/neutral artifacts
+are skipped. This keeps denominator rules (R023 A/R share, future ratio
+rules) testable across any number of generations. A summary prints
+n voided / n credited / n skipped with reasons.
 
 REFUSES to run unless QBO_ENVIRONMENT=sandbox. Timing note: R020's spike
 window is the current calendar month — run the gate in the same month as
@@ -108,9 +113,10 @@ class Seeder:
         """Name the seed item being built, for failure reports."""
         self.step_label = label
 
-    def _create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _create(self, entity: str, payload: dict[str, Any],
+                *, params: dict[str, str] | None = None) -> dict[str, Any]:
         try:
-            return self.qbo.create(entity, payload)
+            return self.qbo.create(entity, payload, params=params)
         except QboRequestError as exc:
             raise SeedFailure(
                 f"[{self.step_label}] creating {entity} failed —"
@@ -277,13 +283,32 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     uncategorized = seeder.account("Uncategorized Expense", "Expense")
     service = seeder.item("CAROLUS Seed Service", income)
 
-    vendor_a = seeder.vendor(f"{mint} VENDOR A")  # duplicate pair
-    vendor_b = seeder.vendor(f"{mint} VENDOR B")  # big opener: MUST be new
-    vendor_c = seeder.vendor(f"{mint} VENDOR C")  # spike baseline
-    vendor_d = seeder.vendor(f"{mint} VENDOR D")  # duplicate doc number
-    whale = seeder.customer(f"{mint} WHALE CORP")
-    cust = seeder.customer(f"{mint} CUSTOMER")
-    job = seeder.customer(f"{mint} JOB", parent_id=cust)
+    # STRICT entity-per-seed isolation: every seed that creates or depends
+    # on entity history gets its OWN entity this generation. Only R010's
+    # twin pair shares a vendor — by design, the pair IS the signal.
+    def vend(role: str) -> str:
+        return seeder.vendor(f"{mint} VENDOR {role}")
+
+    def customer_for(role: str, parent: str | None = None) -> str:
+        suffix = "JOB" if parent else "CUSTOMER"
+        return seeder.customer(f"{mint} {suffix} {role}", parent_id=parent)
+
+    vendor_r010 = vend("R010")  # shared by the duplicate PAIR only
+    vendor_r011 = vend("R011")
+    vendor_r016 = vend("R016")
+    vendor_r020 = vend("R020")
+    vendor_r021 = vend("R021")  # first-ever txn must stay first
+    vendor_r026 = vend("R026")  # backdated bill must not predate anyone
+    vendor_r028 = vend("R028")
+    vendor_r030 = vend("R030")
+    vendor_r032 = vend("R032")
+    vendor_r034 = vend("R034")
+    vendor_r035 = vend("R035")
+    whale = customer_for("R023")
+    customer_r025 = customer_for("R025")
+    customer_r033 = customer_for("R033")
+    parent_r032 = customer_for("R032")
+    job = customer_for("R032", parent=parent_r032)
 
     items: list[SeedItem] = []
 
@@ -300,20 +325,20 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     seeder.step("SEED-1 R010 duplicate purchase pair")
     # 1. R010 — duplicate purchase pair; the LATER twin is the manifest item
     seeder.purchase(amount=750.00 + salt, txn_date=TODAY - timedelta(days=5),
-                    bank=bank, expense=office, vendor=vendor_a,
+                    bank=bank, expense=office, vendor=vendor_r010,
                     note=f"{TAG}-SUPPORT-1 earlier twin")
     p2 = seeder.purchase(amount=750.00 + salt, txn_date=TODAY - timedelta(days=2),
-                         bank=bank, expense=office, vendor=vendor_a,
+                         bank=bank, expense=office, vendor=vendor_r010,
                          note=f"{TAG}-1 duplicate payment later twin")
     add(1, "R010", "Purchase", p2, "same vendor+amount 3 days apart")
 
     seeder.step("SEED-2 R011 duplicate doc number bills")
     # 2. R011 — two bills, same vendor, same DocNumber
     seeder.bill(amount=410.00 + salt, txn_date=TODAY - timedelta(days=20),
-                vendor=vendor_d, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
+                vendor=vendor_r011, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
                 note=f"{TAG}-SUPPORT-2 first entry")
     b2 = seeder.bill(amount=410.00 + salt, txn_date=TODAY - timedelta(days=4),
-                     vendor=vendor_d, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
+                     vendor=vendor_r011, expense=office, doc_number=f"CAROLUS-DUP-{nonce.upper()}",
                      note=f"{TAG}-2 duplicate doc number")
     add(2, "R011", "Bill", b2, "same vendor + DocNumber twice")
 
@@ -351,7 +376,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     seeder.step("SEED-7 R016 backdated entry")
     # 7. R016 — backdated 60 days (created today)
     bd = seeder.purchase(amount=123.45, txn_date=TODAY - timedelta(days=60),
-                         bank=bank, expense=office, vendor=vendor_a,
+                         bank=bank, expense=office, vendor=vendor_r016,
                          note=f"{TAG}-7 backdated entry")
     add(7, "R016", "Purchase", bd, "txn_date 60d before CreateTime")
 
@@ -367,19 +392,19 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     for months_ago in (1, 2, 3):
         seeder.purchase(amount=100.00 + salt,
                         txn_date=months_ago_mid(TODAY, months_ago),
-                        bank=bank, expense=office, vendor=vendor_c,
+                        bank=bank, expense=office, vendor=vendor_r020,
                         note=f"{TAG}-SUPPORT-9 trailing history"
                              f" m-{months_ago}")
     spike = seeder.purchase(amount=6000.00, txn_date=TODAY.replace(day=min(TODAY.day, 6)),
-                            bank=bank, expense=office, vendor=vendor_c,
+                            bank=bank, expense=office, vendor=vendor_r020,
                             note=f"{TAG}-9 spend spike month")
     add(9, "R020", "Purchase", spike, "month spend 40x trailing avg",
-        target="entity", target_kind="vendor", target_qbo_id=vendor_c)
+        target="entity", target_kind="vendor", target_qbo_id=vendor_r020)
 
     seeder.step("SEED-10 R021 large first vendor bill")
     # 10. R021 — first-ever vendor transaction at $6,000
     nb = seeder.bill(amount=6000.00 + salt, txn_date=TODAY - timedelta(days=6),
-                     vendor=vendor_b, expense=office,
+                     vendor=vendor_r021, expense=office,
                      note=f"{TAG}-10 large first bill")
     add(10, "R021", "Bill", nb, "new vendor opens at $6,000")
 
@@ -401,7 +426,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     seeder.step("SEED-13 R030 COGS without job")
     # 13. R030 — COGS without job
     cg = seeder.purchase(amount=600.00, txn_date=TODAY - timedelta(days=2),
-                         bank=bank, expense=cogs, vendor=vendor_a,
+                         bank=bank, expense=cogs, vendor=vendor_r030,
                          note=f"{TAG}-13 COGS without job")
     add(13, "R030", "Purchase", cg, "untagged COGS $600 (v2 floor 500)")
 
@@ -413,7 +438,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
                    customer=job, item=service,
                    note=f"{TAG}-SUPPORT-14 small job billing")
     seeder.bill(amount=2000.00, txn_date=TODAY - timedelta(days=50),
-                vendor=vendor_a, expense=cogs, job_customer=job,
+                vendor=vendor_r032, expense=cogs, job_customer=job,
                 note=f"{TAG}-14 job cost overrun")
     add(14, "R032", "Customer", job, "job margin -1500, critical grade",
         target="job", target_qbo_id=job)
@@ -422,7 +447,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     # 15. R033 — unapplied customer payment, 35 days old, >= $500 (v2)
     up = seeder.unapplied_payment(amount=1000.00,
                                   txn_date=TODAY - timedelta(days=35),
-                                  customer=cust,
+                                  customer=customer_r033,
                                   note=f"{TAG}-15 unapplied payment")
     add(15, "R033", "Payment", up, "payment applied to nothing for 35d")
 
@@ -430,7 +455,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     # 16. R025 — invoice 100 days old, unpaid (QBO Balance = full amount)
     stale_inv = seeder.invoice(amount=1500.00,
                                txn_date=TODAY - timedelta(days=100),
-                               customer=whale, item=service,
+                               customer=customer_r025, item=service,
                                note=f"{TAG}-16 stale receivable")
     add(16, "R025", "Invoice", stale_inv, "open invoice aged 100d >= $1k")
 
@@ -438,7 +463,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     # 17. R026 — bill 70 days old, unpaid (Bills are R016-exempt)
     aged_bill = seeder.bill(amount=1200.00,
                             txn_date=TODAY - timedelta(days=70),
-                            vendor=vendor_b, expense=office,
+                            vendor=vendor_r026, expense=office,
                             note=f"{TAG}-17 aged payable")
     add(17, "R026", "Bill", aged_bill, "open bill aged 70d >= $1k")
 
@@ -454,7 +479,7 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     # 19. R028 — fresh bank account that only ever pays out
     overdrawn = seeder.account("CAROLUS Seed Overdrawn Bank", "Bank")
     seeder.purchase(amount=500.00, txn_date=TODAY - timedelta(days=3),
-                    bank=overdrawn, expense=office, vendor=vendor_a,
+                    bank=overdrawn, expense=office, vendor=vendor_r028,
                     note=f"{TAG}-SUPPORT-19 overdraft spend")
     add(19, "R028", "Account", overdrawn, "bank book balance -500",
         target="account", target_qbo_id=overdrawn)
@@ -465,22 +490,87 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     for n, amount in enumerate((2000.00, 2000.00, 1600.00), start=1):
         seeder.purchase(amount=amount,
                         txn_date=TODAY.replace(day=min(TODAY.day, 4)),
-                        bank=bank, expense=cogs, vendor=vendor_a,
+                        bank=bank, expense=cogs, vendor=vendor_r034,
                         note=f"{TAG}-SUPPORT-20-{n} untagged COGS cluster")
     add(20, "R034", "Customer", "", "untagged COGS ratio 100% of $5.6k",
         target="client", target_qbo_id="(client)")
 
     seeder.step("SEED-21 R035 cost-active unbilled job")
     # 21. R035 — job burning $12k with no invoice in 30 days
-    unbilled_job = seeder.customer(f"{mint} JOB UNBILLED",
-                                   parent_id=cust)
+    parent_r035 = customer_for("R035")
+    unbilled_job = customer_for("R035", parent=parent_r035)
     seeder.bill(amount=12000.00, txn_date=TODAY - timedelta(days=10),
-                vendor=vendor_a, expense=cogs, job_customer=unbilled_job,
+                vendor=vendor_r035, expense=cogs, job_customer=unbilled_job,
                 note=f"{TAG}-21 unbilled job costs")
     add(21, "R035", "Customer", unbilled_job, "cost-active job, zero"
         " invoices in 30d", target="job", target_qbo_id=unbilled_job)
 
     return items
+
+
+def cleanup_prior_generations(
+    seeder: Seeder, conn: psycopg.Connection, client_id: UUID
+) -> dict[str, Any]:
+    """Neutralize prior generations' OPEN-balance seed artifacts.
+
+    Candidates come from the seed tag in STAGED payloads (local, no API
+    cost); their live state (Balance, SyncToken) comes from QBO. Voids
+    invoices; zero-out VendorCredits for bills; skips anything closed,
+    gone, or oddly shaped — with the reason."""
+    candidates = conn.execute(
+        """
+        SELECT DISTINCT entity_type, qbo_id FROM qbo_raw
+        WHERE client_id = %s AND entity_type IN ('Invoice', 'Bill')
+          AND payload ->> 'PrivateNote' LIKE 'CAROLUS-SEED%%'
+          AND payload ->> 'PrivateNote' NOT LIKE '%%CLEANUP%%'
+        ORDER BY entity_type, qbo_id
+        """,
+        (client_id,),
+    ).fetchall()
+    voided = credited = 0
+    skipped: list[tuple[str, str]] = []
+    for entity_type, qbo_id in candidates:
+        label = f"{entity_type} {qbo_id}"
+        seeder.step(f"cleanup {label}")
+        live = seeder._query(entity_type, f"Id = '{qbo_id}'")
+        if not live:
+            skipped.append((label, "no longer exists in QBO"))
+            continue
+        payload = live[0]
+        balance = float(payload.get("Balance") or 0)
+        if balance <= 0:
+            skipped.append((label, "no open balance"))
+            continue
+        if entity_type == "Invoice":
+            seeder._create(
+                "Invoice",
+                {"Id": str(payload["Id"]),
+                 "SyncToken": str(payload["SyncToken"])},
+                params={"operation": "void"},
+            )
+            voided += 1
+        else:  # Bill — not voidable; offset with a zero-out vendor credit
+            vendor_ref = (payload.get("VendorRef") or {}).get("value")
+            first_line = (payload.get("Line") or [{}])[0]
+            account_ref = ((first_line.get("AccountBasedExpenseLineDetail")
+                            or {}).get("AccountRef") or {}).get("value")
+            if not (vendor_ref and account_ref):
+                skipped.append((label, "unsupported shape for vendor credit"))
+                continue
+            seeder._create("VendorCredit", {
+                "VendorRef": {"value": str(vendor_ref)},
+                "TxnDate": TODAY.isoformat(),
+                "PrivateNote": f"{TAG}-CLEANUP bill {qbo_id}",
+                "Line": [{
+                    "Amount": balance,
+                    "DetailType": "AccountBasedExpenseLineDetail",
+                    "AccountBasedExpenseLineDetail": {
+                        "AccountRef": {"value": str(account_ref)},
+                    },
+                }],
+            })
+            credited += 1
+    return {"voided": voided, "credited": credited, "skipped": skipped}
 
 
 def verify_existing(qbo: QboClient, manifest: dict[str, Any]) -> bool:
@@ -498,6 +588,9 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Seed Phase 2 gate violations")
     parser.add_argument("--realm", required=True, help="sandbox realm id")
+    parser.add_argument("--reseed", action="store_true",
+                        help="force a new generation (cleanup + mint) even"
+                             " when the manifest is intact")
     args = parser.parse_args(argv)
 
     if os.environ.get("QBO_ENVIRONMENT") != "sandbox":
@@ -519,19 +612,29 @@ def main(argv: list[str] | None = None) -> int:
         client_id: UUID = row[0]
         qbo = QboClient(conn, client_id, args.realm)
 
-        if MANIFEST_PATH.exists():
+        if MANIFEST_PATH.exists() and not args.reseed:
             manifest = json.loads(MANIFEST_PATH.read_text())
             if (manifest.get("realm") == args.realm
                     and len(manifest.get("items", [])) == EXPECTED_SEEDS
                     and verify_existing(qbo, manifest)):
-                print(f"already seeded — manifest intact at {MANIFEST_PATH}")
+                print(f"already seeded — manifest intact at {MANIFEST_PATH}"
+                      " (use --reseed to force a new generation)")
                 _print_manifest(manifest)
                 return 0
             print("manifest stale, incomplete, or pre-v2 — reseeding")
+        elif args.reseed:
+            print("--reseed: forcing a new generation")
 
+        seeder = Seeder(qbo)
         nonce = secrets.token_hex(3)
         try:
-            items = seed_all(Seeder(qbo), nonce)
+            cleanup = cleanup_prior_generations(seeder, conn, client_id)
+            print(f"cleanup: {cleanup['voided']} voided,"
+                  f" {cleanup['credited']} credited,"
+                  f" {len(cleanup['skipped'])} skipped")
+            for label, why in cleanup["skipped"]:
+                print(f"  skipped {label}: {why}")
+            items = seed_all(seeder, nonce)
         except SeedFailure as exc:
             print(f"\nSEED ABORTED — {exc}", file=sys.stderr)
             print("(no manifest written; objects created before this step"

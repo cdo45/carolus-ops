@@ -194,6 +194,19 @@ def test_create_posts_and_returns_body(monkeypatch: pytest.MonkeyPatch) -> None:
     assert call["method"] == "POST"
     assert call["url"].endswith(f"/v3/company/{REALM}/bill")
     assert call["json"] == {"VendorRef": {"value": "3"}}
+    assert call["params"] == {}
+
+
+def test_create_passes_operation_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Void/delete are POSTs with an operation query param."""
+    client, transport = make_client(
+        monkeypatch, [FakeResponse(payload={"Invoice": {"Id": "9"}})]
+    )
+    client.create("Invoice", {"Id": "9", "SyncToken": "3"},
+                  params={"operation": "void"})
+    call = transport.calls[0]
+    assert call["params"] == {"operation": "void"}
+    assert call["json"] == {"Id": "9", "SyncToken": "3"}
 
 
 def test_create_retries_401_but_not_5xx(monkeypatch: pytest.MonkeyPatch) -> None:

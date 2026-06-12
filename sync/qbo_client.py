@@ -120,16 +120,25 @@ class QboClient:
             },
         )
 
-    def create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create(
+        self,
+        entity: str,
+        payload: dict[str, Any],
+        *,
+        params: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
         """POST a new entity (e.g. create("Bill", {...})) and return the
         response body ({"Bill": {...}}).
+
+        params carries QBO operation modifiers (e.g. {"operation": "void"}
+        with an {Id, SyncToken} payload voids instead of creating).
 
         Used by test seeders today; production write paths arrive with
         Phase 5 risk gating. POSTs are NOT retried on 5xx — QBO gives no
         idempotency guarantee and a replayed POST double-creates. (401
         refresh-retry and 429 — not processed — still apply.)
         """
-        return self._request(entity.lower(), json_body=payload)
+        return self._request(entity.lower(), params=params, json_body=payload)
 
     # ---------------- transport ----------------
 

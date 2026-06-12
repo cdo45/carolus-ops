@@ -19,7 +19,13 @@ from typing import Any
 import pytest
 
 from sync.qbo_client import QboRequestError
-from tests.seed_errors import SeedFailure, Seeder, format_qbo_fault, seed_all
+from tests.seed_errors import (
+    SeedFailure,
+    Seeder,
+    cleanup_prior_generations,
+    format_qbo_fault,
+    seed_all,
+)
 
 VALID_DETAIL_TYPES = {
     "AccountBasedExpenseLineDetail",
@@ -34,13 +40,16 @@ class RecordingQbo:
 
     def __init__(self) -> None:
         self.created: list[tuple[str, dict[str, Any]]] = []
+        self.created_params: list[dict[str, str] | None] = []
         self._next_id = 0
 
     def query(self, entity: str, where: str | None = None) -> list[dict[str, Any]]:
         return []
 
-    def create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create(self, entity: str, payload: dict[str, Any],
+               *, params: dict[str, str] | None = None) -> dict[str, Any]:
         self.created.append((entity, payload))
+        self.created_params.append(params)
         self._next_id += 1
         return {entity: {"Id": str(self._next_id)}}
 
@@ -244,12 +253,135 @@ def test_generations_mint_unique_entities() -> None:
     )
 
 
+def test_seed_entity_mapping_is_injective() -> None:
+    """Strict entity-per-seed isolation: no vendor/customer is referenced
+    by more than ONE rule seed. (R010's twin pair shares its vendor by
+    design — both its transactions carry seed number 1, so the mapping
+    stays injective.) This is the invariant whose violation made R026's
+    backdated bill steal R021's first-ever-transaction slot."""
+    import re
+
+    seeder = Seeder(RecordingQbo())  # type: ignore[arg-type]
+    seed_all(seeder, "abc123")
+
+    entity_names: dict[str, str] = {}
+    for index, (entity, payload) in enumerate(recorder(seeder).created, 1):
+        if entity in ("Vendor", "Customer"):
+            entity_names[str(index)] = payload["DisplayName"]
+
+    seed_number = re.compile(r"CAROLUS-SEED-(?:SUPPORT-)?(\d+)")
+    used_by: dict[str, set[str]] = {}
+    for entity, payload in recorder(seeder).created:
+        note = payload.get("PrivateNote", "")
+        match = seed_number.search(note)
+        if not match:
+            continue
+        seed = match.group(1)
+        refs: list[str] = []
+        for key in ("EntityRef", "VendorRef", "CustomerRef"):
+            if key in payload:
+                refs.append(payload[key]["value"])
+        for line in payload.get("Line", []):
+            detail = line.get("AccountBasedExpenseLineDetail", {})
+            if "CustomerRef" in detail:
+                refs.append(detail["CustomerRef"]["value"])
+        for ref in refs:
+            if ref in entity_names:  # ignore account refs
+                used_by.setdefault(ref, set()).add(seed)
+
+    offenders = {entity_names[ref]: sorted(seeds)
+                 for ref, seeds in used_by.items() if len(seeds) > 1}
+    assert offenders == {}, f"entities shared across rule seeds: {offenders}"
+    assert used_by, "sanity: the mapping is non-empty"
+
+
+# ------------------------------------------------------------ cleanup
+
+
+class CleanupQbo(RecordingQbo):
+    """Scripted live states for the generation-cleanup pass."""
+
+    def __init__(self, live: dict[str, dict[str, Any]]) -> None:
+        super().__init__()
+        self.live = live
+
+    def query(self, entity: str, where: str | None = None) -> list[dict[str, Any]]:
+        assert where is not None and where.startswith("Id = '")
+        qbo_id = where.split("'")[1]
+        payload = self.live.get(qbo_id)
+        return [payload] if payload is not None else []
+
+
+def test_cleanup_voids_credits_and_skips(conn: Any) -> None:
+    """Open invoice -> voided; open bill -> zero-out VendorCredit tagged
+    CLEANUP; paid/vanished artifacts skipped with reasons; untagged and
+    already-CLEANUP rows never even queried."""
+    from psycopg.types.json import Jsonb
+
+    from tests.conftest import make_client
+
+    client_id = make_client(conn)
+
+    def stage(entity: str, qbo_id: str, note: str) -> None:
+        conn.execute(
+            "INSERT INTO qbo_raw (client_id, entity_type, qbo_id, payload)"
+            " VALUES (%s, %s, %s, %s)",
+            (client_id, entity, qbo_id,
+             Jsonb({"Id": qbo_id, "PrivateNote": note})),
+        )
+
+    stage("Invoice", "901", "CAROLUS-SEED-16 stale receivable")
+    stage("Bill", "902", "CAROLUS-SEED-17 aged payable")
+    stage("Invoice", "903", "CAROLUS-SEED-11 AR concentration")  # paid off
+    stage("Invoice", "904", "CAROLUS-SEED-16 older gen")  # gone from QBO
+    stage("Invoice", "905", "client uploaded, untouchable")  # untagged
+    stage("Bill", "906", "CAROLUS-SEED-CLEANUP bill 88")  # cleanup artifact
+    conn.commit()
+
+    qbo = CleanupQbo({
+        "901": {"Id": "901", "SyncToken": "3", "Balance": 1500.37},
+        "902": {"Id": "902", "SyncToken": "1", "Balance": 1200.0,
+                "VendorRef": {"value": "77"},
+                "Line": [{"AccountBasedExpenseLineDetail":
+                          {"AccountRef": {"value": "64"}}}]},
+        "903": {"Id": "903", "SyncToken": "5", "Balance": 0},
+        "905": {"Id": "905", "SyncToken": "1", "Balance": 999.0},
+    })
+    seeder = Seeder(qbo)  # type: ignore[arg-type]
+
+    summary = cleanup_prior_generations(seeder, conn, client_id)
+
+    assert summary["voided"] == 1
+    assert summary["credited"] == 1
+    assert summary["skipped"] == [
+        ("Invoice 903", "no open balance"),
+        ("Invoice 904", "no longer exists in QBO"),
+    ]
+
+    by_entity = {(entity, payload.get("Id")): (payload, params)
+                 for (entity, payload), params in zip(
+                     qbo.created, qbo.created_params, strict=True)}
+    void_payload, void_params = by_entity[("Invoice", "901")]
+    assert void_params == {"operation": "void"}
+    assert void_payload == {"Id": "901", "SyncToken": "3"}
+
+    (credit_payload, credit_params) = by_entity[("VendorCredit", None)]
+    assert credit_params is None
+    assert credit_payload["VendorRef"] == {"value": "77"}
+    assert credit_payload["Line"][0]["Amount"] == 1200.0
+    assert credit_payload["Line"][0]["AccountBasedExpenseLineDetail"] == {
+        "AccountRef": {"value": "64"},
+    }
+    assert "CAROLUS-SEED-CLEANUP" in credit_payload["PrivateNote"]
+
+
 # ------------------------------------------------------------ error reporting
 
 
 def test_seed_failure_identifies_step_and_fault() -> None:
     class Rejecting(RecordingQbo):
-        def create(self, entity: str, payload: dict[str, Any]) -> dict[str, Any]:
+        def create(self, entity: str, payload: dict[str, Any],
+                   *, params: dict[str, str] | None = None) -> dict[str, Any]:
             raise QboRequestError(400, json.dumps({
                 "Fault": {"Error": [{
                     "Message": "Request has invalid or unsupported property",
