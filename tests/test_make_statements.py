@@ -84,6 +84,38 @@ def test_write_validated_statement_fails_loudly(tmp_path: Path) -> None:
                                   ending=ending + Decimal("0.01"), **common)
 
 
+def test_negative_ending_balance_parses(tmp_path: Path) -> None:
+    """A negative balance must render sign-before-dollar ('-$400.00'); the
+    old '$-400.00' made the parser miss the ending balance entirely."""
+    beginning = Decimal("100.00")
+    overdraw = [FixtureLine(date(2026, 5, 3), "CHECK 1 OVERDRAW",
+                            Decimal("500.00"), "debit")]
+    ending = ending_balance(beginning, overdraw)
+    assert ending < 0
+    write_validated_statement(  # would raise StatementParseError before the fix
+        tmp_path / "overdrawn.pdf", period_start=date(2026, 5, 1),
+        period_end=date(2026, 5, 31), beginning=beginning, ending=ending,
+        lines=overdraw, stated_count=len(overdraw),
+    )
+
+
+def test_large_statement_paginates(tmp_path: Path) -> None:
+    """>= 60 lines must span pages and still parse — single-page rendering
+    drops lines off the bottom (lost from the extracted text)."""
+    from pypdf import PdfReader
+
+    lines = [FixtureLine(date(2026, 5, (i % 28) + 1), f"PURCHASE {1000 + i}",
+                         Decimal("10.00"), "credit" if i % 2 else "debit")
+             for i in range(70)]
+    ending = ending_balance(Decimal("5000.00"), lines)
+    path = write_validated_statement(
+        tmp_path / "large.pdf", period_start=date(2026, 5, 1),
+        period_end=date(2026, 5, 31), beginning=Decimal("5000.00"),
+        ending=ending, lines=lines, stated_count=len(lines),
+    )
+    assert len(PdfReader(str(path)).pages) > 1, "must paginate, not clip"
+
+
 def test_balanced_only_excludes_unbalanced_and_warned(
     conn: psycopg.Connection,
 ) -> None:

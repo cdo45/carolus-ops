@@ -36,12 +36,30 @@ class FixtureLine:
         return f"{self.date.isoformat()}  {self.description}  {sign}{self.amount:,.2f}"
 
 
+_TOP = 750
+_BOTTOM = 50
+_LEADING = 14
+
+
 def _write_text_pdf(path: Path, lines: list[str]) -> Path:
     page = canvas.Canvas(str(path), pagesize=letter)
-    text = page.beginText(40, 750)
-    text.setFont("Helvetica", 10)
+
+    def fresh_text() -> Any:
+        text = page.beginText(40, _TOP)
+        text.setFont("Helvetica", 10)
+        text.setLeading(_LEADING)
+        return text
+
+    text = fresh_text()
+    y = _TOP
     for line in lines:
+        if y <= _BOTTOM:  # paginate before a line would fall off the page
+            page.drawText(text)
+            page.showPage()
+            text = fresh_text()
+            y = _TOP
         text.textLine(line)
+        y -= _LEADING
     page.drawText(text)
     page.showPage()
     page.save()
@@ -100,6 +118,13 @@ def ending_balance(beginning: Decimal, lines: list[FixtureLine]) -> Decimal:
     return total
 
 
+def _money_str(value: Decimal) -> str:
+    """Sign BEFORE the dollar: '-$1,234.56', not '$-1,234.56' — the latter is
+    what the pipeline parser (docpipe/statements._ENDING/_BEGINNING) rejects,
+    turning a negative-balance statement into an 'unparseable' escalation."""
+    return f"-${abs(value):,.2f}" if value < 0 else f"${value:,.2f}"
+
+
 def statement_pdf(
     path: Path, *, period_start: date, period_end: date, beginning: Decimal,
     ending: Decimal, lines: list[FixtureLine], stated_count: int | None = None,
@@ -109,8 +134,8 @@ def statement_pdf(
         bank_name,
         f"Statement Period: {period_start.isoformat()} to {period_end.isoformat()}",
         "Account Number: XXXX1234",
-        f"Beginning Balance: ${beginning:,.2f}",
-        f"Ending Balance: ${ending:,.2f}",
+        f"Beginning Balance: {_money_str(beginning)}",
+        f"Ending Balance: {_money_str(ending)}",
     ]
     if stated_count is not None:
         body.append(f"Transactions: {stated_count}")
