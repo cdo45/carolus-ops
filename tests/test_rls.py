@@ -74,3 +74,35 @@ def test_unscoped_fails_closed(
         conn.execute("SET LOCAL ROLE carolus_app")  # carolus_app, no GUC set
         rows = conn.execute("SELECT 1 FROM flags").fetchall()
     assert rows == [], "unset GUC → policy predicate NULL → zero rows"
+
+
+def test_every_client_scoped_table_has_tenant_rls(
+    conn: psycopg.Connection,
+) -> None:
+    """Standing gate: every client-scoped table (the SAME set migration 0013
+    covers — clients plus every base table with a non-dropped client_id) must
+    have RLS enabled AND a tenant_isolation policy. A future migration that
+    adds a client-scoped table without the policy is a silent cross-tenant
+    hole; this fails until the author adds it on purpose."""
+    rows = conn.execute("""
+        SELECT c.relname, c.relrowsecurity,
+               EXISTS (SELECT 1 FROM pg_policy p
+                       WHERE p.polrelid = c.oid AND p.polname = 'tenant_isolation')
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+          AND (c.relname = 'clients'
+               OR EXISTS (SELECT 1 FROM pg_attribute a
+                          WHERE a.attrelid = c.oid AND a.attname = 'client_id'
+                            AND a.attnum > 0 AND NOT a.attisdropped))
+        ORDER BY c.relname
+    """).fetchall()
+    assert len(rows) >= 2, "introspection found no tenant tables — query is broken"
+    offenders = [name for name, rls_on, has_policy in rows
+                 if not (rls_on and has_policy)]
+    assert not offenders, (
+        f"client-scoped tables missing RLS / tenant_isolation policy: {offenders}"
+        " — add the policy in the migration (see 0013_rls.sql), never weaken"
+        " this guard"
+    )
+
