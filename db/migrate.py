@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,17 @@ import psycopg
 from dotenv import load_dotenv
 
 MIGRATIONS_DIR: Path = Path(__file__).parent / "migrations"
+
+# Postgres extensions the migrations depend on. pg_trgm (migration 0008)
+# backs trigram similarity for R027 duplicate-vendor detection and the
+# fact near-duplicate gate. Preflight verifies these BEFORE applying any
+# migration, so a missing extension fails with an actionable message
+# instead of an obscure error partway through 0008.
+REQUIRED_EXTENSIONS: tuple[str, ...] = ("pg_trgm",)
+
+
+class PreflightError(RuntimeError):
+    """A required Postgres extension is missing and cannot be enabled."""
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,45 @@ def applied_versions(conn: psycopg.Connection) -> set[str]:
     rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
     return {row[0] for row in rows}
 
+
+def _extension_message(missing: list[str]) -> str:
+    names = ", ".join(sorted(missing))
+    first = sorted(missing)[0]
+    return (
+        f"required Postgres extension(s) not installed and not available on "
+        f"this database: {names}. These ship with the postgresql-contrib "
+        f"package (pg_trgm is a TRUSTED extension on Postgres 13+, so a "
+        f"database owner can enable it without superuser). Install contrib on "
+        f"the server, or enable it through your managed-Postgres provider's "
+        f"extension catalog, then run as the database owner:  "
+        f"CREATE EXTENSION {first};  and re-run `python -m db.migrate`."
+    )
+
+
+def check_extensions(
+    conn: psycopg.Connection, required: Iterable[str] | None = None
+) -> None:
+    """Preflight: verify required extensions are installed or installable.
+
+    pg_available_extensions lists every extension whose control file is
+    present on the server, whether or not it is installed in this database —
+    i.e. it is the catalog of what `CREATE EXTENSION` could enable here.
+    Anything required but absent from it raises PreflightError with an
+    actionable message. Read-only; safe to call repeatedly.
+    """
+    names = tuple(REQUIRED_EXTENSIONS if required is None else required)
+    if not names:
+        return
+    rows = conn.execute(
+        "SELECT name FROM pg_available_extensions WHERE name = ANY(%s)",
+        (list(names),),
+    ).fetchall()
+    available = {row[0] for row in rows}
+    missing = [name for name in names if name not in available]
+    if missing:
+        raise PreflightError(_extension_message(missing))
+
+
 def migrate(database_url: str, up_to: str | None = None) -> list[Migration]:
     """Apply all pending migrations in order; return those applied.
 
@@ -63,6 +114,9 @@ def migrate(database_url: str, up_to: str | None = None) -> list[Migration]:
     """
     applied: list[Migration] = []
     with psycopg.connect(database_url) as conn:
+        # preflight runs BEFORE anything is written (not even the tracking
+        # table) so a missing extension aborts cleanly with no partial state
+        check_extensions(conn)
         done = applied_versions(conn)
         conn.commit()
         for migration in discover_migrations():
@@ -86,7 +140,11 @@ def main() -> int:
     if not database_url:
         print("DATABASE_URL is not set", file=sys.stderr)
         return 2
-    applied = migrate(database_url)
+    try:
+        applied = migrate(database_url)
+    except PreflightError as exc:
+        print(f"migration preflight failed: {exc}", file=sys.stderr)
+        return 3
     if applied:
         names = ", ".join(f"{m.version}_{m.name}" for m in applied)
         print(f"applied {len(applied)} migration(s): {names}")

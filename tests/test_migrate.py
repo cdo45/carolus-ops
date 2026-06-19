@@ -14,7 +14,14 @@ import psycopg
 import pytest
 from psycopg.errors import CheckViolation
 
-from db.migrate import MIGRATIONS_DIR, discover_migrations, migrate
+from db.migrate import (
+    MIGRATIONS_DIR,
+    REQUIRED_EXTENSIONS,
+    PreflightError,
+    check_extensions,
+    discover_migrations,
+    migrate,
+)
 
 
 def test_discovery_orders_by_version(tmp_path: Path) -> None:
@@ -41,6 +48,46 @@ def test_repo_migrations_are_wellformed() -> None:
     migrations = discover_migrations(MIGRATIONS_DIR)
     assert migrations, "repo must contain at least migration 0001"
     assert migrations[0].version == "0001"
+
+
+def test_preflight_passes_when_required_extensions_available(
+    scratch_db_url: str,
+) -> None:
+    assert "pg_trgm" in REQUIRED_EXTENSIONS
+    with psycopg.connect(scratch_db_url) as conn:
+        check_extensions(conn)  # pg_trgm ships with the server: no raise
+        check_extensions(conn, REQUIRED_EXTENSIONS)
+        check_extensions(conn, ())  # empty requirement is a no-op
+
+
+def test_preflight_fails_actionably_when_extension_absent(
+    scratch_db_url: str,
+) -> None:
+    with psycopg.connect(scratch_db_url) as conn, pytest.raises(
+        PreflightError
+    ) as excinfo:
+        check_extensions(conn, ("carolus_no_such_ext",))
+    message = str(excinfo.value)
+    assert "carolus_no_such_ext" in message, "names the missing extension"
+    assert "CREATE EXTENSION" in message, "says how to enable it"
+    assert "contrib" in message, "names where it comes from"
+
+
+def test_migrate_aborts_before_applying_when_extension_missing(
+    scratch_db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Preflight runs BEFORE any migration — not even schema_migrations is
+    created — so a missing extension leaves zero partial state."""
+    monkeypatch.setattr("db.migrate.REQUIRED_EXTENSIONS", ("carolus_no_such_ext",))
+
+    with pytest.raises(PreflightError):
+        migrate(scratch_db_url)
+
+    with psycopg.connect(scratch_db_url) as conn:
+        present = conn.execute(
+            "SELECT to_regclass('public.schema_migrations')"
+        ).fetchone()
+    assert present == (None,), "preflight must abort before any migration runs"
 
 
 def test_migrate_up_to_stops_at_version(scratch_db_url: str) -> None:
