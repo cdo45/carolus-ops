@@ -91,8 +91,14 @@ auto-resolves its open transform_warning
 
 ## Known gaps (flagged, not silent)
 
-- (none currently — previous gaps for sales tax and JE/Deposit job tags
-  closed by the mapping-completion pass)
+- **`SubTotalLineDetail` / statement-charge invoices** — an invoice whose
+  only income line is a `SubTotalLineDetail` (a legacy QBO statement charge,
+  linked to a `StatementCharge`) does not balance: the subtotal line carries
+  an `Amount` but no `ItemRef`/`AccountRef`, so its income account is only
+  resolvable by following the linked `StatementCharge`, a deprecated entity
+  outside the sync set. Sales tax posts normally (curated GlobalTaxPayable);
+  the income line does not, so the txn retains a correct open
+  `transform_warning`. Deliberately unsupported. (Sandbox: Invoice 42.)
 
 ## Warnings / never silently wrong
 
