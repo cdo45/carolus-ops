@@ -1,4 +1,10 @@
-# Minimal phase-0 CI — grows a job per phase gate.
+# CI — lint + the FULL test suite (unit AND DB-backed) on every push/PR.
+#
+# A postgres:16 service backs CAROLUS_TEST_DB. The DB-backed tests run only
+# when that variable is set, so wiring it here is what turns the ~238-test
+# suite on in CI instead of the unit-only subset. pg_trgm is required by
+# migration 0008 (R027 trigram vendor matching, fact near-duplicate
+# detection) and is enabled before the migrations apply.
 name: ci
 
 on:
@@ -8,11 +14,50 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        # Hold the job until Postgres accepts connections.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Setting CAROLUS_TEST_DB is what makes the DB-backed tests run rather
+      # than skip. If this is ever unset, the migrate step below fails loudly
+      # (its DATABASE_URL becomes empty) instead of the suite silently
+      # shrinking back to the unit-only subset.
+      CAROLUS_TEST_DB: postgresql://postgres:postgres@localhost:5432/carolus_test
+      PGPASSWORD: postgres
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+
       - run: uv sync
+
       - run: uv run ruff check .
-      - run: uv run pytest
+
+      - name: Create the test database
+        run: psql -h localhost -U postgres -d postgres -c "CREATE DATABASE carolus_test"
+
+      - name: Enable the pg_trgm extension
+        run: psql -h localhost -U postgres -d carolus_test -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+
+      - name: Apply migrations to the test database
+        run: uv run python -m db.migrate
+        env:
+          DATABASE_URL: ${{ env.CAROLUS_TEST_DB }}
+
+      - name: Run the full test suite (unit + DB-backed)
+        run: uv run pytest
