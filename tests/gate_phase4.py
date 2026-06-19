@@ -69,6 +69,7 @@ from tests.fixtures.make_statements import (  # noqa: E402
     receipt_pdf,
     statement_lines_from_canonical,
     statement_pdf,
+    write_validated_statement,
 )
 
 WORKDIR = Path(__file__).resolve().parent.parent / "data" / "gate_phase4"
@@ -120,10 +121,15 @@ def run_checks(ctx: GateContext) -> list[tuple[str, bool, str]]:
 
     # ---- build the four statements from canonical activity; the nonce
     # goes into names AND bytes so this run's documents are its own
+    # clean statements are built ONLY from balanced, warning-free books, so
+    # they reconcile against the ledger they came from and pass their own
+    # checksum; write_validated_statement asserts that before the pipeline
+    # sees them, so a bad fixture fails loudly here, never at the rec step.
     lines = statement_lines_from_canonical(
-        conn, client_id, ctx.bank_account_id, ctx.period_start, ctx.period_end
+        conn, client_id, ctx.bank_account_id, ctx.period_start, ctx.period_end,
+        balanced_only=True,
     )
-    assert lines, "gate needs bank activity in the chosen period"
+    assert lines, "gate needs balanced bank activity in the chosen period"
     clean_end = ending_balance(BEGINNING, lines)
     phantom_line = FixtureLine(
         ctx.period_start + timedelta(days=19), "ATM WITHDRAWAL 7741",
@@ -134,14 +140,16 @@ def run_checks(ctx: GateContext) -> list[tuple[str, bool, str]]:
               "beginning": BEGINNING,
               "bank_name": f"First Interstate Bank (gate run {nonce})"}
     files = {
-        "clean": statement_pdf(ctx.workdir / f"statement-clean-{nonce}.pdf",
-                               ending=clean_end, lines=lines,
-                               stated_count=len(lines), **common),
+        "clean": write_validated_statement(
+            ctx.workdir / f"statement-clean-{nonce}.pdf",
+            ending=clean_end, lines=lines, stated_count=len(lines), **common),
+        # deliberately corrupted (ending off by $100) — SHOULD escalate.
         "corrupted": statement_pdf(
             ctx.workdir / f"statement-corrupted-{nonce}.pdf",
             ending=clean_end + Decimal("100.00"),
             lines=lines, stated_count=len(lines), **common),
-        "phantom": statement_pdf(
+        # validates (self-consistent) — the phantom line is caught at rec, not checksum.
+        "phantom": write_validated_statement(
             ctx.workdir / f"statement-phantom-{nonce}.pdf",
             ending=ending_balance(BEGINNING, phantom_lines),
             lines=phantom_lines, stated_count=len(phantom_lines), **common),
