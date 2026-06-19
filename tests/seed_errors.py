@@ -124,13 +124,15 @@ class Seeder:
                 f"  payload sent: {json.dumps(payload, default=str)}"
             ) from exc
 
-    def _query(self, entity: str, where: str) -> list[dict[str, Any]]:
+    def _query(
+        self, entity: str, where: str | None = None
+    ) -> list[dict[str, Any]]:
         try:
             return self.qbo.query(entity, where)
         except QboRequestError as exc:
             raise SeedFailure(
-                f"[{self.step_label}] querying {entity} ({where}) failed —"
-                f" {format_qbo_fault(exc)}"
+                f"[{self.step_label}] querying {entity}"
+                f" ({where or 'all'}) failed — {format_qbo_fault(exc)}"
             ) from exc
 
     # ---------- ensure-helpers: find by name, create if missing ----------
@@ -171,6 +173,19 @@ class Seeder:
             {"Name": name, "Type": "Service",
              "IncomeAccountRef": {"value": income_account_id}},
         )
+
+    def open_ar_total(self) -> float:
+        """Sum the sandbox's current open A/R from QBO's own Balance field.
+
+        query() pages internally, so this sees every invoice; Balance is not
+        reliably filterable in a QBO WHERE, so filter Balance > 0 in code.
+        """
+        total = 0.0
+        for inv in self._query("Invoice"):
+            balance = float(inv.get("Balance") or 0)
+            if balance > 0:
+                total += balance
+        return total
 
     # ---------- transaction builders ----------
 
@@ -409,8 +424,16 @@ def seed_all(seeder: Seeder, nonce: str) -> list[SeedItem]:
     add(10, "R021", "Bill", nb, "new vendor opens at $6,000")
 
     seeder.step("SEED-11 R023 AR concentration invoice")
-    # 11. R023 — A/R concentration: one $25,000 open invoice
-    inv = seeder.invoice(amount=25000.00, txn_date=TODAY - timedelta(days=8),
+    # 11. R023 — the whale must be BOTH > $25k open AND > 50% of total open
+    # A/R. The sandbox accumulates open invoices (its own samples; this gen's
+    # later small ones), so a fixed $25k is not reliably the majority. Size
+    # the whale against live ambient A/R (cleanup has voided prior seed
+    # invoices, and the fresh nonce'd whale has none of its own yet):
+    # ambient + 25001 makes the whale alone exceed all other open A/R
+    # combined (-> > 50%), clears $25k, and the 25k buffer absorbs the few
+    # small invoices seeded after this (e.g. R025 ~$1k).
+    whale_amount = seeder.open_ar_total() + 25000.0 + 1.0
+    inv = seeder.invoice(amount=whale_amount, txn_date=TODAY - timedelta(days=8),
                          customer=whale, item=service,
                          note=f"{TAG}-11 AR concentration")
     add(11, "R023", "Invoice", inv, "whale customer dominates open AR",
