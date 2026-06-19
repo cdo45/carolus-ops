@@ -200,6 +200,43 @@ def test_deposit_moves_undeposited_to_bank() -> None:
     assert credits == {UNDEPOSITED: Decimal("1500.00")}
 
 
+def test_deposit_linked_payments_clear_undeposited_funds() -> None:
+    """Batch deposit of customer payments: lines carry LinkedTxn and NO
+    AccountRef — they clear Undeposited Funds, so the deposit balances."""
+    payload = {
+        "Id": "7002", "TotalAmt": 1250.00, "DepositToAccountRef": {"value": "1"},
+        "Line": [
+            {"Amount": 750.00,
+             "LinkedTxn": [{"TxnId": "3001", "TxnType": "Payment"}],
+             "DepositLineDetail": {}},
+            {"Amount": 500.00,
+             "LinkedTxn": [{"TxnId": "3002", "TxnType": "Payment"}],
+             "DepositLineDetail": {}},
+        ],
+    }
+    lines, warns = build_journal_lines("Deposit", payload, resolver())
+    assert warns == []
+    debits, credits = by_side(lines)
+    assert debits == {BANK: Decimal("1250.00")}
+    assert credits == {UNDEPOSITED: Decimal("1250.00")}
+
+
+def test_deposit_linked_payment_without_undeposited_warns() -> None:
+    """warn-never-guess: a linked-payment line with no single Undeposited
+    Funds account to clear is flagged, not posted onto a guess."""
+    r = Resolver(accounts={"1": AccountInfo(BANK, "Bank", "Checking")})  # no UF
+    payload = {
+        "Id": "7003", "TotalAmt": 750.00, "DepositToAccountRef": {"value": "1"},
+        "Line": [{"Amount": 750.00,
+                  "LinkedTxn": [{"TxnId": "3001", "TxnType": "Payment"}],
+                  "DepositLineDetail": {}}],
+    }
+    lines, warns = build_journal_lines("Deposit", payload, r)
+    assert any("Undeposited Funds unresolvable" in w for w in warns)
+    debits, credits = by_side(lines)
+    assert debits == {BANK: Decimal("750.00")} and credits == {}
+
+
 def test_credit_memo_reverses_invoice_directions() -> None:
     payload = {
         "Id": "8001", "TotalAmt": 100.00, "CustomerRef": {"value": "200"},

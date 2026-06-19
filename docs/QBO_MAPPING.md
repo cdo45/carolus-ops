@@ -58,7 +58,7 @@ upsert in place instead of delete+reinsert.
 | Payment | `DepositToAccountRef`, else Undeposited Funds | A/R |
 | BillPayment | A/P | bank (`CheckPayment.BankAccountRef`) or card (`CreditCardPayment.CCAccountRef`) by `PayType` |
 | Purchase | expense per line (`Credit=true` flips the whole entry) | payment `AccountRef` |
-| Deposit | `DepositToAccountRef` for `TotalAmt` | per `DepositLineDetail.AccountRef` |
+| Deposit | `DepositToAccountRef` for `TotalAmt` | per `DepositLineDetail.AccountRef`; a line with a `LinkedTxn` and no AccountRef (batched customer payments) credits the Undeposited Funds account |
 | JournalEntry | explicit `PostingType` per line | explicit `PostingType` per line |
 
 Line account resolution: `AccountBasedExpenseLineDetail.AccountRef`

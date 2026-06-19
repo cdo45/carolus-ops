@@ -473,6 +473,16 @@ def _lines_deposit(payload: Payload, r: Resolver) -> BuildResult:
             continue
         detail = line["DepositLineDetail"]
         account = r.account_id(_ref_value(detail.get("AccountRef")))
+        if account is None and line.get("LinkedTxn"):
+            # Standard "batch customer payments out of Undeposited Funds into
+            # the bank": the line links a Payment/SalesReceipt and carries no
+            # AccountRef — it clears Undeposited Funds.
+            account = r.undeposited_funds_id
+            if account is None:
+                warns.append(
+                    "deposit line: LinkedTxn but Undeposited Funds unresolvable"
+                )
+                continue
         if account is None:
             warns.append("deposit line: unresolvable AccountRef")
             continue
