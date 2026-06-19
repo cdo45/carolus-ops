@@ -94,3 +94,11 @@ curation. Confirm `retransform`'s `warnings_retained` is empty.
 DB-backed) against a `postgres:16` service with `pg_trgm` enabled. Green CI
 means the migrations apply cleanly and every DB-backed test passes on a
 matching server — the same preflight and schema this checklist provisions.
+
+## 7. Tenant isolation (RLS)
+
+Migration 0013 enforces tenant isolation in Postgres via the least-privilege
+`carolus_app` role — the identity the portal/agent connect through (scoped
+per request by `db.tenant.tenant_tx`); the migrating role must be able to
+create it (superuser, or a role with `CREATEROLE`).
+
