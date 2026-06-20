@@ -188,6 +188,30 @@ def test_agent_unscoped_fails_closed(
         )
 
 
+def test_empty_string_guc_fails_closed_for_both_roles(
+    conn: psycopg.Connection, ab: tuple[Chain, Chain]
+) -> None:
+    """The exact production failure mode: a pooled connection whose
+    app.current_client has reverted to '' (not unset) after a scoped txn. ''
+    must deny like unset — zero rows — never raise on ''::uuid. Pinned for BOTH
+    tenant roles, since 0013/0014's carolus_app policies shared the same bug."""
+    for role in ("carolus_app", "carolus_agent"):
+        with conn.transaction():
+            conn.execute(sql.SQL("SET LOCAL ROLE {}").format(sql.Identifier(role)))
+            conn.execute("SELECT set_config('app.current_client', '', true)")
+            assert conn.execute("SELECT count(*) FROM clients").fetchone() == (0,), (
+                f"{role}: empty-string GUC must deny on clients, not error"
+            )
+            assert conn.execute("SELECT count(*) FROM flags").fetchone() == (0,), (
+                f"{role}: empty-string GUC must deny on flags, not error"
+            )
+            if role == "carolus_agent":
+                # carolus_app has no grant on journal_lines; only the agent reads it
+                assert conn.execute(
+                    "SELECT count(*) FROM journal_lines"
+                ).fetchone() == (0,), "agent: empty-string GUC denies on journal_lines"
+
+
 def test_every_tenant_table_walls_carolus_agent(conn: psycopg.Connection) -> None:
     """Standing gate: every base table holding client data (the client_id
     tables, plus journal_lines, plus the clients root) must have RLS enabled
