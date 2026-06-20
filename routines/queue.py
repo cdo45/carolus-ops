@@ -71,6 +71,53 @@ def resolve(
     )
 
 
+_TRIAGE_STATUS = {"dismiss": "dismissed", "resolve": "resolved"}
+
+
+def triage(
+    conn: psycopg.Connection,
+    item_id: UUID,
+    *,
+    action: str,
+    by: str,
+    note: str | None = None,
+) -> None:
+    """Triage a flag queue item and propagate the close to its flag, atomically.
+
+    action 'dismiss' | 'resolve'. Closes the queue item (via resolve) and, for a
+    kind='flag' item, closes the underlying OPEN flag with the matching status —
+    dismiss -> 'dismissed', resolve -> 'resolved'. The flag's resolution_note is
+    the caller's note or a clear manual marker; either way it never starts with
+    the engine's auto-resolve prefix ("condition cleared on "), so _reconcile
+    treats the flag as manually closed and never reopens it (and project_flags
+    will not re-enqueue a non-open flag). The caller owns the transaction, so the
+    item and flag close together. (approve/snooze are for the suggestion-type
+    items that don't exist yet — flags support dismiss/resolve only.)
+    """
+    if action not in _TRIAGE_STATUS:
+        raise ValueError(f"triage action must be 'dismiss' or 'resolve', got {action!r}")
+    status = _TRIAGE_STATUS[action]
+
+    row = conn.execute(
+        "SELECT kind, source_ref FROM review_queue WHERE id = %s", (item_id,)
+    ).fetchone()
+    assert row is not None, f"no review_queue item {item_id}"
+    kind, source_ref = row
+
+    resolve(conn, item_id, status=status, resolved_by=by, note=note)
+
+    if kind == "flag":
+        flag_note = note or f"{status} via review queue by {by}"
+        conn.execute(
+            """
+            UPDATE flags
+            SET status = %s, resolution_note = %s, resolved_at = now()
+            WHERE id = %s::uuid AND status = 'open'
+            """,
+            (status, flag_note, source_ref),
+        )
+
+
 def open_items(
     conn: psycopg.Connection, client_id: UUID | None = None
 ) -> list[dict[str, Any]]:

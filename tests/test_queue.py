@@ -11,8 +11,38 @@ from uuid import UUID
 
 import psycopg
 
-from routines.queue import enqueue, open_items, resolve
+from routines.flag_queue import project_flags
+from routines.queue import enqueue, open_items, resolve, triage
 from tests.conftest import make_client
+
+
+def _open_flag(
+    conn: psycopg.Connection,
+    client_id: UUID,
+    *,
+    rule_code: str = "R010",
+    severity: str = "warn",
+    source_ref: str = "t-1",
+) -> UUID:
+    """An open engine flag (the kind project_flags turns into a queue item)."""
+    row = conn.execute(
+        "INSERT INTO flags (client_id, rule_code, severity, status, source_type,"
+        " source_ref, detail) VALUES (%s, %s, %s, 'open', 'transaction', %s, '{}')"
+        " RETURNING id",
+        (client_id, rule_code, severity, source_ref),
+    ).fetchone()
+    assert row is not None
+    return row[0]
+
+
+def _flag_item(conn: psycopg.Connection, flag_id: UUID) -> UUID:
+    """The queue item project_flags opened for a flag (source_ref = flag id)."""
+    row = conn.execute(
+        "SELECT id FROM review_queue WHERE source_type = 'flag' AND source_ref = %s",
+        (str(flag_id),),
+    ).fetchone()
+    assert row is not None
+    return row[0]
 
 
 def _enqueue(
@@ -91,3 +121,77 @@ def test_open_items_span_clients_filter_and_order(
     only_a = open_items(conn, client_a)
     assert {item["client_id"] for item in only_a} == {client_a}
     assert [item["priority"] for item in only_a] == ["critical", "warn", "info"]
+
+
+def test_triage_dismiss_closes_item_and_flag(conn: psycopg.Connection) -> None:
+    client_id = make_client(conn)
+    flag_id = _open_flag(conn, client_id)
+    conn.commit()
+    project_flags(conn, client_id)
+    item_id = _flag_item(conn, flag_id)
+
+    triage(conn, item_id, action="dismiss", by="carlos")
+    conn.commit()
+
+    item = conn.execute(
+        "SELECT status, resolved_by FROM review_queue WHERE id = %s", (item_id,)
+    ).fetchone()
+    assert item == ("dismissed", "carlos"), "the queue item is dismissed"
+    flag = conn.execute(
+        "SELECT status FROM flags WHERE id = %s", (flag_id,)
+    ).fetchone()
+    assert flag == ("dismissed",), "the underlying flag is dismissed too"
+
+
+def test_triage_resolve_closes_item_and_flag_with_manual_note(
+    conn: psycopg.Connection,
+) -> None:
+    client_id = make_client(conn)
+    flag_id = _open_flag(conn, client_id)
+    conn.commit()
+    project_flags(conn, client_id)
+    item_id = _flag_item(conn, flag_id)
+
+    triage(conn, item_id, action="resolve", by="carlos")
+    conn.commit()
+
+    item = conn.execute(
+        "SELECT status FROM review_queue WHERE id = %s", (item_id,)
+    ).fetchone()
+    assert item == ("resolved",), "the queue item is resolved"
+    flag = conn.execute(
+        "SELECT status, resolution_note FROM flags WHERE id = %s", (flag_id,)
+    ).fetchone()
+    assert flag is not None
+    status, note = flag
+    assert status == "resolved", "the underlying flag is resolved"
+    assert note and not note.startswith("condition cleared on "), (
+        "a manual resolve note must NOT look like the engine's auto-resolve,"
+        " or _reconcile would treat the flag as reopenable"
+    )
+
+
+def test_triage_dismiss_survives_reprojection(conn: psycopg.Connection) -> None:
+    """Dismissed-stays-dismissed across a cycle: once triage closes the flag,
+    re-running project_flags neither reopens the flag nor re-surfaces an item."""
+    client_id = make_client(conn)
+    flag_id = _open_flag(conn, client_id)
+    conn.commit()
+    project_flags(conn, client_id)
+    item_id = _flag_item(conn, flag_id)
+    triage(conn, item_id, action="dismiss", by="carlos")
+    conn.commit()
+
+    project_flags(conn, client_id)  # the nightly projection runs again
+    conn.commit()
+
+    flag = conn.execute(
+        "SELECT status FROM flags WHERE id = %s", (flag_id,)
+    ).fetchone()
+    assert flag == ("dismissed",), "the flag stays dismissed"
+    reopened = conn.execute(
+        "SELECT count(*) FROM review_queue WHERE source_type = 'flag'"
+        " AND source_ref = %s AND status = 'open'",
+        (str(flag_id),),
+    ).fetchone()
+    assert reopened == (0,), "no new open queue item re-surfaces for the dismissed flag"
