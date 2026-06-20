@@ -6,14 +6,21 @@ one recorded run per client. It only CALLS those steps; it owns none of
 their logic. Email intake, bookkeeping auto-post, and the LLM brief are
 later Phase 5 increments and deliberately absent here.
 
-Runs under the OWNER connection with app-layer client_id scoping, exactly
-like sync and the rules engine: both write journal_lines, a table the
-least-privilege carolus_app role has no grant on, so the routine does NOT
-SET ROLE. Structural RLS isolation is gated separately on the queue/flags
-layer in the Phase 5 gate chunk.
+Two connections by design:
 
-The single live-QBO seam is `sync`, injected so the whole routine is
-testable offline; its default is an incremental sync for the client.
+  - the OWNER connection runs migrate() (DDL can't run as the agent) and the
+    'nightly' run bookkeeping — INSERTed up front, stamped succeeded/failed at
+    the end. Deliberately on the owner so a rolled-back agent transaction still
+    records the failure; it is bookkeeping, not a tenant-data write.
+
+  - the per-client DATA steps run on a dedicated carolus_agent connection
+    (db.tenant.agent_connection) SESSION-scoped to the client, so Postgres RLS
+    (migrations 0015/0016) physically confines them to that one tenant — and
+    the scoping survives the internal commits those steps make.
+
+The single live-QBO seam is `sync`, injected so the whole routine is testable
+offline; its default is an incremental sync built on the AGENT connection, so
+its token reads/writes and cursor advance are tenant-scoped too.
 """
 
 from __future__ import annotations
@@ -32,6 +39,7 @@ from dotenv import load_dotenv
 from psycopg.types.json import Jsonb
 
 from db.migrate import migrate
+from db.tenant import agent_connection
 from routines.flag_queue import project_flags
 from rules.close_checklist import evaluate_close, parse_period, persist_close
 from rules.engine import run_rules
@@ -89,62 +97,63 @@ def run_nightly(
 ) -> dict[str, Any]:
     """Run one client's nightly routine inside a recorded 'nightly' run.
 
-    Mirrors run_rules' run lifecycle: open a 'nightly' run, drive the built
-    steps (sync -> rules -> flag projection -> close checklist) on the owner
-    connection (no SET ROLE), then finish the run succeeded/failed with a
-    compact actions summary. Returns the summary.
+    The run lifecycle (insert 'nightly', stamp succeeded/failed) stays on the
+    OWNER connection; the data steps (sync -> rules -> flag projection -> close
+    checklist) run on a carolus_agent connection SESSION-scoped to the client,
+    so Postgres RLS confines them to that one tenant. Returns the summary.
     """
-    migrate(database_url)  # schema currency before any work; idempotent
+    migrate(database_url)  # schema currency before any work; idempotent (owner)
 
-    with psycopg.connect(database_url) as conn:
-        sync = sync or _default_sync(conn)
-
-        run_row = conn.execute(
+    with psycopg.connect(database_url) as owner:
+        run_row = owner.execute(
             "INSERT INTO runs (client_id, routine) VALUES (%s, 'nightly')"
             " RETURNING id",
             (client_id,),
         ).fetchone()
         assert run_row is not None
         run_id: UUID = run_row[0]
-        conn.commit()  # the run is on the record before any step runs
+        owner.commit()  # the run is on the record before any step runs
 
         try:
-            sync(client_id)  # the live-QBO seam; default = incremental sync
-            rules = run_rules(conn, client_id)  # makes its own run, commits
-            project_flags(conn, client_id)  # open flags -> open queue items
-            period_start, period_end = parse_period(date.today().strftime("%Y-%m"))
-            close = evaluate_close(conn, client_id, period_start, period_end)
-            persist_close(conn, client_id, close)
-            conn.commit()
+            with agent_connection(database_url, client_id) as agent:
+                active_sync = sync or _default_sync(agent)
+                active_sync(client_id)  # the live-QBO seam; default = incremental
+                rules = run_rules(agent, client_id)  # makes its own run, commits
+                project_flags(agent, client_id)  # open flags -> open queue items
+                period_start, period_end = parse_period(date.today().strftime("%Y-%m"))
+                close = evaluate_close(agent, client_id, period_start, period_end)
+                persist_close(agent, client_id, close)
+                agent.commit()
 
-            queued_row = conn.execute(
-                "SELECT count(*) FROM review_queue WHERE client_id = %s"
-                " AND kind = 'flag' AND status = 'open'",
-                (client_id,),
-            ).fetchone()
-            assert queued_row is not None
+                queued_row = agent.execute(
+                    "SELECT count(*) FROM review_queue WHERE client_id = %s"
+                    " AND kind = 'flag' AND status = 'open'",
+                    (client_id,),
+                ).fetchone()
+                assert queued_row is not None
+                queued = queued_row[0]
+            # agent connection closed here — session role + GUC reset
+
             actions: dict[str, Any] = {
                 "rules": rules["totals"],
-                "queued": queued_row[0],
+                "queued": queued,
                 "close": close.status,
             }
-            _finish_run(conn, run_id, status="succeeded", actions=actions)
+            _finish_run(owner, run_id, status="succeeded", actions=actions)
             return {"run_id": run_id, "status": "succeeded", **actions}
         except NoCursor as exc:
             # New client with no baseline: a clear operational outcome, not a
             # bug — record it and surface it, never crash opaquely.
-            conn.rollback()
             _finish_run(
-                conn,
+                owner,
                 run_id,
                 status="failed",
                 actions={"error": "NoCursor", "needs": "initial full_sync"},
             )
             return {"run_id": run_id, "status": "needs_full_sync", "message": str(exc)}
         except Exception as exc:
-            conn.rollback()
             _finish_run(
-                conn, run_id, status="failed", actions={"error": type(exc).__name__}
+                owner, run_id, status="failed", actions={"error": type(exc).__name__}
             )
             raise
 
