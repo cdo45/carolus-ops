@@ -102,3 +102,15 @@ Migration 0013 enforces tenant isolation in Postgres via the least-privilege
 per request by `db.tenant.tenant_tx`); the migrating role must be able to
 create it (superuser, or a role with `CREATEROLE`).
 
+Migration 0015 adds `carolus_agent`, the write-capable role the per-client
+data steps run as (also `NOLOGIN`/`NOSUPERUSER`/`NOBYPASSRLS`, also created
+by the migrating role). It is subject to the same `tenant_isolation` policies
+as `carolus_app` on every direct-`client_id` table, plus a parent-scoped
+policy on `journal_lines` — the one tenant table without a `client_id` —
+that admits a line only when its parent `transactions` row belongs to the
+`app.current_client` client. Neither role uses `FORCE`, so the owner
+connection still bypasses RLS: schema migrations and any `journal_lines`
+DDL must keep running as the owner, and only the per-client data steps
+connect as `carolus_agent`. Both roles need a password and `LOGIN` to be
+provisioned for real connections (Phase 6, Doppler-sourced).
+
