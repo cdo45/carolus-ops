@@ -194,3 +194,64 @@ def test_routine_agent_connection_cannot_reach_another_tenant(
                 " 'transaction', 'y')",
                 (client_b,),
             )
+
+
+def test_agent_connection_ends_its_transaction_on_exit(
+    conn: psycopg.Connection, scratch_db_url: str
+) -> None:
+    """agent_connection must EXPLICITLY end its transaction on exit, not rely on
+    the server rolling back on disconnect — a bare close leaves the backend
+    `idle in transaction` holding the data steps' locks, which deadlocks the next
+    per-client run_nightly (the scheduler runs them sequentially). Proven by a
+    trailing write the caller never commits: an explicit commit-on-exit keeps it;
+    a bare close loses it to the disconnect rollback. This is the deterministic
+    bare-close gate — it fails on a bare close and passes on the fix."""
+    client_id = make_client(conn)
+    with agent_connection(scratch_db_url, client_id) as agent:
+        agent.execute(
+            "INSERT INTO flags (client_id, rule_code, severity, status,"
+            " source_type, source_ref) VALUES (%s, 'R000', 'warn', 'open',"
+            " 'transaction', 'exit-commit-probe')",
+            (client_id,),
+        )
+        # the block exits with this INSERT uncommitted by the caller
+    conn.rollback()  # fresh snapshot on the owner connection
+    persisted = conn.execute(
+        "SELECT count(*) FROM flags WHERE client_id = %s"
+        " AND source_ref = 'exit-commit-probe'",
+        (client_id,),
+    ).fetchone()
+    assert persisted == (1,), (
+        "agent_connection must commit (explicitly end) its transaction on exit;"
+        " a bare close loses the write to disconnect-rollback and leaves the"
+        " backend idle in transaction"
+    )
+
+
+def test_run_nightly_sequential_calls_leave_no_idle_in_transaction(
+    conn: psycopg.Connection, scratch_db_url: str
+) -> None:
+    """The production failure mode as a gate: the scheduler runs run_nightly per
+    client sequentially, and a leaked `idle in transaction` agent connection
+    holds the sync's locks and deadlocks the next call. Three sequential runs
+    must all complete with nothing left idle in transaction. (On a local server a
+    bare close terminates the backend promptly, so here this asserts the
+    invariant; the deterministic bare-close gate is the commit-on-exit test.)"""
+    client_id = make_client(conn)
+    _seed_open_sync_flag(conn, client_id)
+
+    def fake_sync(cid: UUID) -> None:
+        return None
+
+    run_nightly(scratch_db_url, client_id, sync=fake_sync)
+    run_nightly(scratch_db_url, client_id, sync=fake_sync)
+    third = run_nightly(scratch_db_url, client_id, sync=fake_sync)
+    assert third["status"] == "succeeded", "the third sequential nightly returned (no hang)"
+
+    conn.rollback()
+    idle = conn.execute(
+        "SELECT count(*) FROM pg_stat_activity"
+        " WHERE datname = current_database() AND state = 'idle in transaction'"
+        " AND pid <> pg_backend_pid()"
+    ).fetchone()
+    assert idle == (0,), "no agent connection left idle in transaction after the runs"

@@ -46,16 +46,20 @@ def agent_connection(
     and set_config(..., is_local=false) — and committed, so they survive the
     internal commits the data steps make; an internal commit would clear a
     transaction-scoped (tenant_tx) scoping and drop back to the owner mid-flow.
-    Closing the connection resets both. Everything run on it is RLS-confined to
-    client_id — including journal_lines, via its parent-scoped policy.
+    Everything run on it is RLS-confined to client_id — including journal_lines,
+    via its parent-scoped policy.
+
+    Uses psycopg's connection context manager so __exit__ EXPLICITLY ends the
+    transaction (commit on normal exit, rollback on exception) and THEN closes.
+    A bare close instead leaves the data steps' last open transaction for the
+    server to roll back on disconnect, which on the live path leaves the backend
+    `idle in transaction` holding journal_lines/transactions locks — deadlocking
+    the scheduler's next per-client run_nightly.
     """
-    conn = psycopg.connect(database_url)
-    try:
+    with psycopg.connect(database_url) as conn:
         conn.execute(
             "SELECT set_config('app.current_client', %s, false)", (str(client_id),)
         )
         conn.execute("SET ROLE carolus_agent")
         conn.commit()  # make the session role + GUC durable across step commits
         yield conn
-    finally:
-        conn.close()
