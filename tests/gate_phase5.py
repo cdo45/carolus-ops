@@ -235,7 +235,12 @@ def main(argv: list[str] | None = None) -> int:
     migrate(database_url)  # schema currency first (owner; idempotent)
     print(f"PHASE 5 GATE — realm {args.realm}, run {nonce}")
 
-    with psycopg.connect(database_url) as conn:
+    # autocommit so every seed/assert/triage statement commits instantly and the
+    # gate's connection holds ZERO locks at every instant — run_nightly opens its
+    # own owner + carolus_agent connections, and none of them can ever wait on a
+    # lock the gate is sitting on while sync writes journal_lines. (The existing
+    # conn.commit() calls become harmless no-ops.)
+    with psycopg.connect(database_url, autocommit=True) as conn:
         row = conn.execute(
             "SELECT id FROM clients WHERE qbo_realm_id = %s", (args.realm,)
         ).fetchone()
