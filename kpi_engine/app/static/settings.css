@@ -1,0 +1,41 @@
+:root{--ink:#1c2128;--muted:#57606a;--line:#d0d7de;--bg:#f6f8fa;
+--green:#1a7f37;--red:#cf222e;--blue:#0969da;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,
+sans-serif;color:var(--ink);background:#fff;line-height:1.45;}
+.topbar{display:flex;justify-content:space-between;align-items:center;
+background:var(--ink);color:#fff;padding:12px 20px;}
+.brand{font-weight:600;}
+.back{color:#fff;text-decoration:none;font-size:13px;opacity:.85;}
+main{max-width:820px;margin:0 auto;padding:18px 20px;}
+.panel{border:1px solid var(--line);border-radius:10px;padding:16px;
+margin-bottom:16px;}
+.panel h2{font-size:15px;margin:0 0 10px;}
+.panel h3{font-size:13px;margin:16px 0 6px;}
+.hint{color:var(--muted);font-size:12px;}
+.row{display:flex;gap:10px;align-items:center;}
+.row.end{justify-content:flex-end;margin-top:12px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+gap:12px;}
+label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;
+gap:4px;}
+input,select,textarea{padding:7px 9px;border-radius:6px;border:1px solid
+var(--line);font-size:13px;font-family:inherit;}
+textarea{width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.scenario-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.scenario-grid .scn{border:1px solid var(--line);border-radius:8px;padding:10px;}
+.scenario-grid h4{margin:0 0 6px;font-size:12px;}
+button{cursor:pointer;border:1px solid var(--line);background:#fff;
+border-radius:6px;padding:7px 12px;font-size:13px;}
+button.primary{background:var(--blue);color:#fff;border-color:var(--blue);
+font-weight:600;}
+.history,.audit{list-style:none;padding:0;margin:0;font-size:13px;}
+.history li,.audit li{padding:7px 0;border-bottom:1px solid var(--line);}
+.history .meta,.audit .meta{color:var(--muted);font-size:12px;}
+.msg{padding:9px 12px;border-radius:8px;font-size:13px;margin-bottom:8px;}
+.msg.ok{background:#dafbe1;border:1px solid var(--green);}
+.msg.err{background:#ffebe9;border:1px solid var(--red);}
+.proposal{margin-top:12px;font-size:13px;}
+.proposal code{background:var(--bg);border:1px solid var(--line);
+border-radius:6px;padding:3px 7px;word-break:break-all;}
+a{color:var(--blue);}

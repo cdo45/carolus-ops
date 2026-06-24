@@ -1,0 +1,18 @@
+Acme Services Inc,,,,,,,
+Invoices and Received Payments,,,,,,,
+"June, 2025-May, 2026",,,,,,,
+,,,,,,,
+,Date,Transaction type,Memo/Description,Transaction number,Amount,A/R paid,Open Balance
+Carolina Perez,,,,,,,
+,06/20/2025,Payment,,,"4,368.00",,0.00
+,06/01/2025,Invoice,Coffee table,1056,"1,456.00",Paid,
+,06/05/2025,Invoice,Side table,1057,"1,456.00",Paid,0.00
+,06/10/2025,Invoice,Console,1058,"1,456.00",Paid,
+Customer B,,,,,,,
+,07/15/2025,Invoice,Kitchen remodel,1060,"7,510.00",Unpaid,61.85
+Customer C,,,,,,,
+,08/01/2025,Invoice,Deck build,1070,"2,000.00",Paid,0.00
+,08/20/2025,Payment,,PMT-88,"2,000.00",,
+,09/01/2025,Invoice,Pergola,1075,"1,000.00",Paid,0.00
+,,,,,,,
+" Friday, June 12, 2026 02:45 AM GMTZ",,,,,,,

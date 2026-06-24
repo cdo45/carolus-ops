@@ -1,0 +1,94 @@
+[
+  {
+    "priority": 1,
+    "patterns": ["deprec", "amortiz"],
+    "category": "DEP",
+    "confidence": 95
+  },
+  {
+    "priority": 2,
+    "patterns": ["distribution", "draw", "owner pay"],
+    "category": "EQ-DRAW",
+    "confidence": 90
+  },
+  {
+    "priority": 3,
+    "patterns": ["payroll tax", "941", "940", "unemployment", "sales tax payable", "dept of tax", "department of taxation"],
+    "category": "TAXL",
+    "confidence": 90,
+    "condition": {"type_class": "balance_sheet"}
+  },
+  {
+    "priority": 3,
+    "patterns": ["payroll tax", "941", "940", "unemployment", "sales tax payable", "dept of tax", "department of taxation"],
+    "category": "TAXE",
+    "confidence": 90,
+    "condition": {"type_class": "expense"}
+  },
+  {
+    "priority": 4,
+    "patterns": ["subcontract", "sub labor", "subs "],
+    "category": "SUB",
+    "confidence": 90
+  },
+  {
+    "priority": 5,
+    "patterns": ["direct labor", "field wages", "field labor", "field payroll", "job labor", "crew"],
+    "category": "DL",
+    "confidence": 90
+  },
+  {
+    "priority": 6,
+    "patterns": ["materials", "supplies", "lumber", "parts"],
+    "category": "DMAT",
+    "confidence": 75,
+    "condition": {"qbo_type": "Cost of Goods Sold"}
+  },
+  {
+    "priority": 7,
+    "patterns": ["rent", "lease", "occupancy"],
+    "category": "OH-OCC",
+    "confidence": 80,
+    "condition": {"type_class": "expense"}
+  },
+  {
+    "priority": 8,
+    "patterns": ["insurance", "workers comp", "work comp", "liability ins", "w/c"],
+    "category": "OH-INS",
+    "confidence": 85
+  },
+  {
+    "priority": 9,
+    "patterns": ["office salar", "office wage", "office payroll", "admin payroll", "g&a wages"],
+    "category": "OH-PAY",
+    "confidence": 80
+  },
+  {
+    "priority": 10,
+    "patterns": ["interest"],
+    "category": "INT",
+    "confidence": 80,
+    "condition": {"type_class": "expense"}
+  },
+  {
+    "priority": 11,
+    "patterns": ["loan", "note payable", "n/p"],
+    "category": "LTD",
+    "confidence": 75,
+    "condition": {"type_class": "balance_sheet", "qbo_type_not": "Bank"}
+  },
+  {
+    "priority": 12,
+    "patterns": ["retention", "retainage"],
+    "category": "RET-AR",
+    "confidence": 85
+  },
+  {
+    "priority": 99,
+    "patterns": [""],
+    "category": "DMAT",
+    "confidence": 60,
+    "condition": {"qbo_type": "Cost of Goods Sold"},
+    "note": "Default: any Cost of Goods Sold account with no earlier match falls back to DMAT. The empty pattern matches every name."
+  }
+]

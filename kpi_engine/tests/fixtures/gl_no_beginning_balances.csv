@@ -1,0 +1,24 @@
+Beta Builders LLC,,,,,,,,
+General Ledger,,,,,,,,
+June 2025 - May 2026,,,,,,,,
+,,,,,,,,
+,Transaction date,Transaction type,Num,Name,Description,Split,Amount,Balance
+Job Materials,,,,,,,,
+,06/05/2025,Bill,26013-0042,BuildSupply Co,Framing lumber,Accounts Payable,800.00,800.00
+,07/19/2025,Bill,26014-0001,BuildSupply Co,Drywall,Accounts Payable,"1,200.00","2,000.00"
+,03/03/2026,Bill,5512,Hardware Hut,Fasteners,Accounts Payable,500.00,"2,500.00"
+Total for Job Materials,,,,,,,"$2,500.00",
+Equipment Rental,,,,,,,,
+Total for Equipment Rental,,,,,,,$0.00,
+Consulting Income,,,,,,,,
+,06/10/2025,Invoice,2001,Client X,June consulting,Accounts Receivable,"-2,000.00","-2,000.00"
+,12/01/2025,Invoice,2050,Client Y,December consulting,Accounts Receivable,"-3,500.00","-5,500.00"
+Total for Consulting Income,,,,,,,"$-5,500.00",
+Accounts Receivable,,,,,,,,
+,06/15/2025,Invoice,3001,Carolina Perez:Carolina Coffee Table,Custom coffee table,Design Income,"1,916.47","498,607.33"
+,06/20/2025,Journal Entry,JK2025.24,,To write off donated job.,,"-1,916.47","496,690.86"
+,06/20/2025,Payment,,Carolina Perez:Carolina Coffee Table,,,,"496,690.86"
+,09/30/2025,Journal Entry,JK2025.40,,Memo-only entry,,,"496,690.86"
+Total for Accounts Receivable,,,,,,,$0.00,
+,,,,,,,,
+Accrual Basis  Friday, June 12, 2026 03:05 AM GMTZ,,,,,,,,

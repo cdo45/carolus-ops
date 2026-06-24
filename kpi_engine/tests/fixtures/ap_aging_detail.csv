@@ -1,0 +1,18 @@
+Acme Services Inc,,,,,,,,
+A/P Aging Detail,,,,,,,,
+"As of Jun 11, 2026",,,,,,,,
+,,,,,,,,
+,Date,Transaction type,Num,Vendor display name,Due date,Past due,Amount,Open balance
+91 or more days past due,,,,,,,,
+,06/20/2025,Bill,887,Joe's Welding,07/20/2025,327,450.00,450.00
+Total for 91 or more days past due,,,,,,,,450.00
+1 - 30 days past due,,,,,,,,
+,05/15/2026,Bill,26013-0042,BuildSupply Co,05/30/2026,12,800.00,800.00
+Total for 1 - 30 days past due,,,,,,,,800.00
+CURRENT,,,,,,,,
+,06/01/2026,Bill,26014-0001,BuildSupply Co,07/01/2026,-19,"1,200.00","1,200.00"
+,06/05/2026,Bill,5512,Hardware Hut,07/05/2026,-23,75.00,0.00
+Total for CURRENT,,,,,,,,"1,200.00"
+TOTAL,,,,,,,,"$2,450.00"
+,,,,,,,,
+" Friday, June 12, 2026 02:42 AM GMTZ",,,,,,,,

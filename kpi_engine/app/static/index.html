@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QBO KPI Dashboard</title>
+<!--STYLE-->
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">QBO KPI Dashboard</div>
+  <div class="client-picker">
+    <label for="client-select">Client</label>
+    <select id="client-select"></select>
+    <a id="settings-link" class="settings-link" href="#" hidden>Settings</a>
+    <button id="add-client" type="button">+ Add client</button>
+    <span id="add-client-form" hidden>
+      <input id="new-client-name" type="text" placeholder="Client name">
+      <button id="create-client" type="button">Create</button>
+      <button id="cancel-client" type="button">Cancel</button>
+    </span>
+  </div>
+</header>
+
+<main>
+  <div id="messages" aria-live="polite"></div>
+
+  <section id="dropzone" class="dropzone">
+    <strong>Drop any QBO export here</strong>
+    <p>We detect the report type and file it in the right place.</p>
+  </section>
+
+  <div id="queue-banner" class="banner" hidden></div>
+
+  <section>
+    <h2>Reports</h2>
+    <div id="buckets" class="bucket-grid"></div>
+  </section>
+
+  <section class="run-row">
+    <button id="run-btn" class="primary" type="button" disabled>
+      Update Dashboard
+    </button>
+    <span class="hint">Classifies accounts, recomputes every KPI, and
+      rebuilds the offline dashboard.</span>
+  </section>
+
+  <section id="result" class="result" hidden></section>
+</main>
+
+<!--SCRIPT-->
+</body>
+</html>

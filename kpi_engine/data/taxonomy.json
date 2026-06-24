@@ -1,0 +1,194 @@
+[
+  {
+    "code": "CASH",
+    "label": "Cash & banks",
+    "explanation": "Money in checking, savings, and cash on hand — what you could spend today.",
+    "side": "BS",
+    "group": "Current Assets"
+  },
+  {
+    "code": "AR",
+    "label": "Money customers owe us",
+    "explanation": "Invoices you've sent that customers haven't paid yet.",
+    "side": "BS",
+    "group": "Current Assets"
+  },
+  {
+    "code": "OCA",
+    "label": "Other current assets",
+    "explanation": "Short-term stuff you own that isn't cash or unpaid invoices, like deposits or prepaid expenses.",
+    "side": "BS",
+    "group": "Current Assets"
+  },
+  {
+    "code": "FA",
+    "label": "Equipment & property",
+    "explanation": "Big things you own and use for years — trucks, tools, machines, buildings.",
+    "side": "BS",
+    "group": "Fixed Assets"
+  },
+  {
+    "code": "AD",
+    "label": "Accumulated depreciation",
+    "explanation": "The wear-and-tear already counted against your equipment's original cost.",
+    "side": "BS",
+    "group": "Fixed Assets"
+  },
+  {
+    "code": "AP",
+    "label": "Bills we owe",
+    "explanation": "Bills from vendors and suppliers you haven't paid yet.",
+    "side": "BS",
+    "group": "Current Liabilities"
+  },
+  {
+    "code": "CC",
+    "label": "Credit cards",
+    "explanation": "Balances owed on business credit cards.",
+    "side": "BS",
+    "group": "Current Liabilities"
+  },
+  {
+    "code": "TAXL",
+    "label": "Taxes owed",
+    "explanation": "Payroll, sales, and other taxes you've collected or accrued but haven't sent in yet.",
+    "side": "BS",
+    "group": "Current Liabilities"
+  },
+  {
+    "code": "OCL",
+    "label": "Other current liabilities",
+    "explanation": "Other short-term amounts you owe that aren't bills, credit cards, or taxes.",
+    "side": "BS",
+    "group": "Current Liabilities"
+  },
+  {
+    "code": "LTD",
+    "label": "Loans & long-term debt",
+    "explanation": "Money borrowed that gets paid back over more than a year — bank loans, vehicle notes, lines of credit.",
+    "side": "BS",
+    "group": "Long-Term Liabilities"
+  },
+  {
+    "code": "EQ-DRAW",
+    "label": "Owner draws — money the owner takes out",
+    "explanation": "Money the owner takes out of the business for personal use.",
+    "side": "BS",
+    "group": "Equity"
+  },
+  {
+    "code": "EQ",
+    "label": "Owner equity",
+    "explanation": "The owner's stake in the business — what's left after subtracting everything owed from everything owned.",
+    "side": "BS",
+    "group": "Equity"
+  },
+  {
+    "code": "REV",
+    "label": "Revenue",
+    "explanation": "Money earned from selling your products or services.",
+    "side": "PL",
+    "group": "Income"
+  },
+  {
+    "code": "OI",
+    "label": "Other income",
+    "explanation": "Money that comes in from outside your normal work, like interest earned or rebates.",
+    "side": "PL",
+    "group": "Other Income"
+  },
+  {
+    "code": "DL",
+    "label": "Direct labor — wages for people doing the billable work",
+    "explanation": "Wages for the people doing the billable work, like field crews and technicians.",
+    "side": "PL",
+    "group": "Cost of Goods Sold"
+  },
+  {
+    "code": "SUB",
+    "label": "Subcontractors",
+    "explanation": "Payments to outside companies or people you hire to do parts of the job.",
+    "side": "PL",
+    "group": "Cost of Goods Sold"
+  },
+  {
+    "code": "DMAT",
+    "label": "Materials & direct costs",
+    "explanation": "Materials, parts, and other costs that go directly into the jobs you do.",
+    "side": "PL",
+    "group": "Cost of Goods Sold"
+  },
+  {
+    "code": "OH-PAY",
+    "label": "Office & admin payroll",
+    "explanation": "Wages for office and administrative staff who keep the business running.",
+    "side": "PL",
+    "group": "Overhead"
+  },
+  {
+    "code": "OH-INS",
+    "label": "Insurance",
+    "explanation": "Business insurance costs — liability, workers comp, vehicles, and similar coverage.",
+    "side": "PL",
+    "group": "Overhead"
+  },
+  {
+    "code": "OH-OCC",
+    "label": "Rent & facilities",
+    "explanation": "Rent, utilities, and other costs of the space your business operates from.",
+    "side": "PL",
+    "group": "Overhead"
+  },
+  {
+    "code": "OH",
+    "label": "Other overhead",
+    "explanation": "General running costs that don't tie to a specific job — software, phones, fees, supplies.",
+    "side": "PL",
+    "group": "Overhead"
+  },
+  {
+    "code": "TAXE",
+    "label": "Tax expense",
+    "explanation": "Taxes the business pays as an expense, like payroll taxes or business income taxes.",
+    "side": "PL",
+    "group": "Overhead"
+  },
+  {
+    "code": "INT",
+    "label": "Interest expense",
+    "explanation": "The cost of borrowing money — interest paid on loans and credit lines.",
+    "side": "PL",
+    "group": "Other Expense"
+  },
+  {
+    "code": "DEP",
+    "label": "Depreciation (non-cash)",
+    "explanation": "An accounting charge that spreads equipment cost over its life — no cash actually leaves.",
+    "side": "PL",
+    "group": "Other Expense"
+  },
+  {
+    "code": "UB",
+    "label": "Underbillings",
+    "explanation": "Work you've completed but haven't billed the customer for yet.",
+    "side": "BS",
+    "group": "Current Assets",
+    "dormant": true
+  },
+  {
+    "code": "OB",
+    "label": "Overbillings",
+    "explanation": "Amounts you've billed customers ahead of the work actually done.",
+    "side": "BS",
+    "group": "Current Liabilities",
+    "dormant": true
+  },
+  {
+    "code": "RET-AR",
+    "label": "Retention receivable",
+    "explanation": "The portion of your invoices a customer holds back until the job is finished.",
+    "side": "BS",
+    "group": "Current Assets",
+    "dormant": true
+  }
+]

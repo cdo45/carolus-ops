@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Client Settings</title>
+<!--STYLE-->
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Settings — <span id="client-name"></span></div>
+  <a class="back" href="/">← Home</a>
+</header>
+
+<main>
+  <div id="messages" aria-live="polite"></div>
+
+  <section class="panel">
+    <h2>Display name</h2>
+    <div class="row">
+      <input id="display-name" type="text">
+      <button id="save-name" type="button">Save</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Forecast assumptions</h2>
+    <div class="grid">
+      <label>Cash floor ($)
+        <input id="cash-floor" type="number" step="100"></label>
+      <label>Archetype
+        <select id="archetype">
+          <option value="auto">Auto-detect</option>
+          <option value="ap_driven">AP-driven</option>
+          <option value="direct_pay">Direct-pay</option>
+        </select></label>
+    </div>
+    <h3>Scenario haircuts &amp; shifts</h3>
+    <div id="scenario-grid" class="scenario-grid"></div>
+    <h3>Manual billing schedule</h3>
+    <p class="hint">JSON list, e.g.
+      <code>[{"week": 1, "amount": 5000}]</code>. Used when no recurring
+      revenue is detected.</p>
+    <textarea id="manual-billing" rows="4"></textarea>
+    <div class="row end">
+      <button id="save-assumptions" class="primary" type="button">
+        Save assumptions
+      </button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Account mapping</h2>
+    <p><a id="mapping-link" href="#">Review account categories →</a></p>
+  </section>
+
+  <section class="panel">
+    <h2>Data history</h2>
+    <ul id="history" class="history"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Recent changes</h2>
+    <ul id="audit" class="audit"></ul>
+  </section>
+
+  <section class="panel">
+    <h2>COA standardization proposal</h2>
+    <button id="gen-proposal" type="button">Generate proposal</button>
+    <div id="proposal-result" class="proposal" hidden></div>
+  </section>
+</main>
+
+<!--SCRIPT-->
+</body>
+</html>

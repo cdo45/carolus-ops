@@ -1,0 +1,100 @@
+[
+  {
+    "pattern": "Retained Earnings",
+    "category": "EQ",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Opening Balance Equity",
+    "category": "EQ",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Uncategorized Income",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Uncategorized Expense",
+    "category": "OH",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Uncategorized Asset",
+    "category": "OCA",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Undeposited Funds",
+    "category": "CASH",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Payments to deposit",
+    "category": "CASH",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Reconciliation Discrepancies",
+    "category": "OH",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Sales",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Services",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Billable Expense Income",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Sales of Product Income",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": false
+  },
+  {
+    "pattern": "Unapplied Cash Payment Income",
+    "category": "REV",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  },
+  {
+    "pattern": "Unapplied Cash Bill Payment Expense",
+    "category": "OH",
+    "confidence": 100,
+    "source": "factory",
+    "flag_if_nonzero": true
+  }
+]

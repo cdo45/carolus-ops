@@ -1,0 +1,21 @@
+Acme Services Inc,,,,,,
+Bills and Applied Payments,,,,,,
+"June, 2025-May, 2026",,,,,,
+,,,,,,
+,Date,Transaction type,Transaction number,Memo/Description,Amount,Open balance
+Hardware Hut,,,,,,
+,07/31/2025,Bill Payment (Credit Card),,July statement,-336.84,
+,07/02/2025,Bill,26013-0042,Fasteners,56.14,0.00
+,07/05/2025,Bill,26013-0043,Hinges,56.14,0.00
+,07/10/2025,Bill,26013-0044,Brackets,56.14,0.00
+,07/15/2025,Bill,26014-0001,Screws,56.14,0.00
+,07/20/2025,Bill,26014-0002,Anchors,56.14,0.00
+,07/25/2025,Bill,5512,Misc,56.14,0.00
+Card Services,,,,,,
+,08/01/2025,Bill Payment (Check),9001,August payment,-500.00,0.00
+,08/05/2025,Vendor Credit,VC-9,Returned goods,-25.00,
+,08/10/2025,Journal Entry,JE-12,Reclass,25.00,
+,08/15/2025,Deposit,,Refund deposit,100.00,0.00
+,08/20/2025,Bill,26015-0001,Materials,400.00,0.00
+,,,,,,
+" Friday, June 12, 2026 02:47 AM GMTZ",,,,,,

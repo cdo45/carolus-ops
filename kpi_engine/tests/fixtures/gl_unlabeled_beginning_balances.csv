@@ -1,0 +1,17 @@
+Gamma Mechanical LLC,,,,,,,,
+General Ledger,,,,,,,,
+"June, 2025-May, 2026",,,,,,,,
+,,,,,,,,
+,Transaction date,Transaction type,Num,Name,Description,Split,Amount,Balance
+Money Market (8556),,,,,,,,
+,,,,,,,,"24,797.35"
+,06/02/2025,Transfer,,,Transfer to operating,Operating Account (7784) - 1,"-5,000.00","19,797.35"
+,09/15/2025,Transfer,,,Transfer to operating,Operating Account (7784) - 1,"-19,797.35",$0.00
+Total for Money Market (8556),,,,,,,"$-24,797.35",
+Credit Card Payable,,,,,,,,
+,,,,,,,,"-1,250.00"
+,07/01/2025,Expense,,Fuel Stop,Fleet fuel,Credit Card,-300.00,"-1,550.00"
+,08/01/2025,Bill Payment,,Card Services,Card payment,Checking,"1,000.00",$-550.00
+Total for Credit Card Payable,,,,,,,$700.00,
+,,,,,,,,
+Accrual Basis  Friday, June 12, 2026 03:12 AM GMTZ,,,,,,,,

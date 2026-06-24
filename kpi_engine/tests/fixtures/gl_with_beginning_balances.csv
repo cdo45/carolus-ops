@@ -1,0 +1,28 @@
+Acme Services Inc,,,,,,,,
+General Ledger,,,,,,,,
+"June, 2025-May, 2026",,,,,,,,
+,,,,,,,,
+,Transaction date,Transaction type,Num,Name,Description,Split,Amount,Balance
+Checking,,,,,,,,
+,Beginning Balance,,,,,,,"5,000.00"
+,06/15/2025,Deposit,,Customer A,Invoice payment,Accounts Receivable,"1,200.00","6,200.00"
+,07/02/2025,Expense,,Office Depot,Office supplies,Office Expenses,-350.25,"5,849.75"
+,08/10/2025,Deposit,,Customer B,Progress billing,Accounts Receivable,"2,500.00","8,349.75"
+,09/01/2025,Check,1042,Premier Insurance,Annual premium,Insurance,"-1,199.75","7,150.00"
+Total for Checking,,,,,,,"$2,150.00",
+"Repairs, Outside Services",,,,,,,,
+,Beginning Balance,,,,,,,0.00
+,06/20/2025,Bill,887,Joe's Welding,Gate repair,Accounts Payable,450.00,450.00
+,07/15/2025,Bill,912,Acme Machine Shop,Pump rebuild,Accounts Payable,"1,234.56","1,684.56"
+,09/05/2025,Vendor Credit,VC-12,Acme Machine Shop,Returned part,Accounts Payable,-200.00,"1,484.56"
+,11/12/2025,Bill,1003,Joe's Welding,Rail repair,Accounts Payable,315.44,"1,800.00"
+"Total for Repairs, Outside Services",,,,,,,"$1,800.00",
+Design Income,,,,,,,,
+,Beginning Balance,,,,,,,0.00
+,06/18/2025,Invoice,1001,Customer A,Design phase 1,Accounts Receivable,"-3,000.00","-3,000.00"
+,08/22/2025,Invoice,1014,Customer B,Design phase 2,Accounts Receivable,"-1,500.00","-4,500.00"
+,10/30/2025,Credit Memo,CM-3,Customer A,Scope reduction,Accounts Receivable,250.00,"-4,250.00"
+,01/15/2026,Invoice,1042,Customer C,Design retainer,Accounts Receivable,"-2,750.00","-7,000.00"
+Total for Design Income,,,,,,,"$-7,000.00",
+,,,,,,,,
+Accrual Basis  Friday, June 12, 2026 03:02 AM GMTZ,,,,,,,,

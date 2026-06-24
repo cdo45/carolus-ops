@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New Client Setup</title>
+<!--STYLE-->
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">New Client Setup</div>
+  <a class="back" href="/">← Home</a>
+</header>
+
+<main>
+  <ol id="stepper" class="stepper"></ol>
+  <div id="messages" aria-live="polite"></div>
+
+  <section class="step" data-step="1">
+    <h2>What's the client called?</h2>
+    <div class="row">
+      <input id="wiz-name" type="text" placeholder="Client name">
+      <button id="wiz-create" class="primary" type="button">Continue</button>
+    </div>
+  </section>
+
+  <section class="step" data-step="2" hidden>
+    <h2>Drop in the QBO exports</h2>
+    <p class="hint">Chart of Accounts, General Ledger, Aging Details,
+      Invoices/Bills — all at once. We sort them out.</p>
+    <div id="wiz-drop" class="dropzone">
+      <strong>Drop files here</strong>
+      <p>or <button id="wiz-pick" class="linkish" type="button">choose
+        files</button></p>
+      <input id="wiz-files" type="file" multiple hidden>
+    </div>
+    <ul id="wiz-receipts" class="receipts"></ul>
+    <div class="row end">
+      <button id="wiz-to-3" class="primary" type="button">Next</button>
+    </div>
+  </section>
+
+  <section class="step" data-step="3" hidden>
+    <h2>Confirm the account categories</h2>
+    <div id="wizard-mapping-root"></div>
+    <div class="row end">
+      <button id="wiz-to-4" class="primary" type="button">Looks good — next</button>
+    </div>
+  </section>
+
+  <section class="step" data-step="4" hidden>
+    <h2>Lowest this client's cash should ever go?</h2>
+    <p class="hint">We'll flag any forecast week that dips below this floor.</p>
+    <div class="row">
+      <span>$</span>
+      <input id="wiz-floor" type="number" min="0" step="100" value="0">
+      <button id="wiz-to-5" class="primary" type="button">Next</button>
+    </div>
+  </section>
+
+  <section class="step" data-step="5" hidden>
+    <h2>Ready to go</h2>
+    <button id="wiz-generate" class="primary" type="button">
+      Generate first dashboard
+    </button>
+    <div id="wiz-result" class="result" hidden></div>
+  </section>
+</main>
+
+<!--SCRIPT-->
+</body>
+</html>

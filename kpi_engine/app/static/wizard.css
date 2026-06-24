@@ -1,0 +1,31 @@
+/* Wizard-specific styles; base variables come from mapping.css (inlined). */
+main{max-width:880px;margin:0 auto;padding:18px 20px;}
+.stepper{display:flex;gap:8px;list-style:none;padding:0;margin:0 0 16px;
+font-size:12px;color:var(--muted);flex-wrap:wrap;}
+.stepper li{padding:4px 10px;border:1px solid var(--line);border-radius:999px;}
+.stepper li.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+.stepper li.done{color:var(--green);border-color:var(--green);}
+.step h2{font-size:16px;margin:0 0 10px;}
+.hint{color:var(--muted);font-size:13px;}
+.row{display:flex;gap:10px;align-items:center;margin-top:12px;}
+.row.end{justify-content:flex-end;}
+input[type=text],input[type=number]{padding:8px 10px;border-radius:6px;
+border:1px solid var(--line);font-size:14px;}
+.dropzone{border:2px dashed var(--line);border-radius:10px;padding:28px;
+text-align:center;color:var(--muted);background:var(--bg);}
+.dropzone.drag{border-color:var(--blue);background:#ddf4ff;color:var(--ink);}
+.receipts{list-style:none;padding:0;margin:12px 0;font-size:13px;}
+.receipts li{padding:8px 12px;border:1px solid var(--line);border-radius:8px;
+margin-bottom:6px;background:#fff;}
+.receipts li.err{border-color:var(--red);background:#ffebe9;}
+.receipts .note{color:var(--muted);font-size:12px;}
+.result{border:1px solid var(--line);border-radius:10px;padding:16px;
+margin-top:16px;background:var(--bg);}
+.headline{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:10px;}
+.headline .num{font-size:24px;font-weight:600;}
+.headline .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;}
+.pathline{font-size:12px;word-break:break-all;}
+.pathline code{background:#fff;border:1px solid var(--line);border-radius:6px;
+padding:4px 8px;}
+.primary{background:var(--blue);color:#fff;border-color:var(--blue);
+font-weight:600;padding:9px 18px;font-size:14px;}

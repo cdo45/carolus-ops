@@ -1,0 +1,15 @@
+Acme Services Inc,,,,,
+Account List,,,,,
+,,,,,
+Account #,Full name,Type,Detail type,Description,Total balance
+10100,Checking,Bank,Checking,Main operating account,"7,150.00"
+,Money Market (8556),Bank,Money Market,,"123,424.21"
+15000,FIXED ASSETS,Fixed Assets,Other fixed assets,,0.00
+15100,FIXED ASSETS:Vehicles,Fixed Assets,Vehicles,,0.00
+15110,FIXED ASSETS:Vehicles:2019 Range Rover,Fixed Assets,Vehicles,Company vehicle,"85,000.00"
+,"Repairs, Outside Services",Expenses,Repairs & Maintenance,Outside repair vendors,
+20100,Old Loan (deleted),Long Term Liabilities,Notes Payable,,0.00
+40100,Design Income,Income,Service/Fee Income,,"-7,000.00"
+TOTAL,,,,,"$208,574.21"
+,,,,,
+" Friday, June 12, 2026 02:50 AM GMTZ",,,,,
