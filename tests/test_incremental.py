@@ -26,9 +26,14 @@ from sync.incremental import (
 from tests.conftest import make_client
 from tests.qbo_fixtures import COMPANY, FakeQbo
 
-T0 = datetime(2026, 6, 8, 12, 0, tzinfo=timezone.utc)
-T1 = "2026-06-09T01:00:00+00:00"
-T2 = "2026-06-09T02:00:00+00:00"
+# Sync cursors are anchored to the current time, not a fixed date:
+# run_incremental_sync refuses any cursor older than CDC_MAX_AGE (29 days), so a
+# hard-coded date turns these tests into a time bomb a month after they're
+# written. Only the cursors meet that check; payload timestamps below are data.
+_NOW = datetime.now(timezone.utc).replace(microsecond=0)
+T0 = _NOW - timedelta(days=2)  # the seeded full-sync cursor
+T1 = (_NOW - timedelta(days=1)).isoformat()  # first CDC response time
+T2 = (_NOW - timedelta(hours=12)).isoformat()  # a later CDC response time
 
 DELETED_PURCHASE = {
     "Id": "5001",
