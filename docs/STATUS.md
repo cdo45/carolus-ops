@@ -57,8 +57,10 @@ reconciliation check) on the unmerged branch `analysis/kpi-engine-gl-feed`. See
 [`kpi_engine/INTEGRATION.md`](../kpi_engine/INTEGRATION.md).
 
 **By the numbers:** 17 database migrations, 26 rules ([catalog](RULES.md)),
-5 phase gates, 273 tests in the main suite and 209 in the KPI engine, all
-passing.
+5 phase gates, 273 tests in the main suite and 209 in the KPI engine. All of
+them pass on the `docs/project-status` branch, which carries the two fixes
+described under Open housekeeping. `main` at `cc0fc73` is still red until that
+branch merges: its lint step fails, and so do three tests.
 
 ## What it achieves today
 
