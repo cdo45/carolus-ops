@@ -25,6 +25,9 @@ package = false
 
 [tool.ruff]
 target-version = "py312"
+# kpi_engine/ is vendored (its own style + its own 209-test suite); carolus
+# lints and tests only its own code. Mirrors the pytest exclusion in conftest.py.
+extend-exclude = ["kpi_engine"]
 
 [tool.pytest.ini_options]
 # flat module layout (db/, sync/, ...) — make repo root importable in tests
