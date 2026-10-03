@@ -1,6 +1,6 @@
 # Build Status
 
-As of 2026-10-03 · code state: `main` at `cc0fc73` (2026-06-23) and the
+As of 2026-10-03 · code state: `main` at `518f805` (2026-10-03) and the
 unmerged branch `analysis/kpi-engine-gl-feed` (2026-06-24).
 
 This is the repo copy of the build-status doc; a shareable copy with diagrams
@@ -57,10 +57,8 @@ reconciliation check) on the unmerged branch `analysis/kpi-engine-gl-feed`. See
 [`kpi_engine/INTEGRATION.md`](../kpi_engine/INTEGRATION.md).
 
 **By the numbers:** 17 database migrations, 26 rules ([catalog](RULES.md)),
-5 phase gates, 273 tests in the main suite and 209 in the KPI engine. All of
-them pass on the `docs/project-status` branch, which carries the two fixes
-described under Open housekeeping. `main` at `cc0fc73` is still red until that
-branch merges: its lint step fails, and so do three tests.
+5 phase gates, 273 tests in the main suite and 209 in the KPI engine, all
+passing on `main`.
 
 ## What it achieves today
 
@@ -167,18 +165,12 @@ binding constraint is client acquisition, not software. Full specification:
 
 ## Open housekeeping
 
-- **Fixed alongside this document.** CI on `main` went red when the KPI engine
-  landed: its first step, `ruff check .`, flagged 10 findings in the vendored
-  `kpi_engine/`, so the test step never ran after that. Separately, from
-  2026-07-07 three incremental-sync tests failed because their fixtures
-  hard-coded June sync cursors that aged out of the 29-day change window — test
-  bugs, not product bugs. The change that added this file excludes
-  `kpi_engine/` from root linting (the same lines the adapter branch already
-  carries) and anchors those cursors to the current time.
+- **CI is green again.** PR #2 (merged 2026-10-03) fixed the lint step and
+  three date-dependent tests that had kept `main` red since 2026-06-24.
 - **Docs have drifted.** The product specification (last updated 2026-06-18)
   still lists Phase 5 as only specified, with ~238 tests, 12 migrations and
   row-level security as future work. The roadmap's Phase 2 section still says
   15 seeded errors (21 since rules v2) and has no run instructions for Phase 5.
   The README's repo map omits `kpi_engine/`.
 - **One unmerged branch:** `analysis/kpi-engine-gl-feed`, 3 commits ahead of
-  `main` and none behind.
+  `main` and 4 behind.
